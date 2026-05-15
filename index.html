@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kreator Instrukcji Oświetlenia — Vertex</title>
+<meta name="description" content="Kreator instrukcji sterowania oświetleniem — Vertex, Node-RED, BMS">
+<meta name="author" content="lech604">
+<meta property="og:title" content="Kreator Instrukcji Oświetlenia">
+<meta property="og:description" content="Twórz profesjonalne instrukcje sterowania oświetleniem i eksportuj do PDF">
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">💡</div>
+    <div><div class="logo-title">Kreator Instrukcji</div><div class="logo-sub">sterowanie oświetleniem</div></div>
+  </div>
+  <div class="topbar-btns">
+    <button class="btn btn-outline btn-sm" onclick="goTo(4)">Podgląd</button>
+    <button class="btn btn-green btn-sm" onclick="openExport()">⬇ Eksportuj</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="steps" id="steps-bar"></div>
+
+  <!-- PAGE 0 -->
+  <div id="page-0">
+    <div class="card">
+      <div class="card-title">Podstawowe informacje</div>
+      <div class="field"><label class="lbl">Tytuł instrukcji</label><input class="inp" id="f-title" value="Instrukcja sterowania oświetleniem"></div>
+      <div class="field"><label class="lbl">Podtytuł</label><input class="inp" id="f-subtitle" placeholder="np. Biuro Grzesiek — Vertex"></div>
+      <div class="field"><label class="lbl">Tagi (oddzielone przecinkami)</label><input class="inp" id="f-tags" value="Vertex, Node-RED, BMS"></div>
+      <div class="field"><label class="lbl">Uwaga globalna (np. NOPRESENS)</label><textarea class="inp" id="f-note" rows="3" placeholder="np. Sygnał NOPRESENS — brak ruchu przez 20 min powoduje wyłączenie opraw i przywrócenie sensora."></textarea></div>
+    </div>
+    <div class="nav-btns"><span></span><button class="btn btn-dark" onclick="goTo(1)">Dalej →</button></div>
+  </div>
+
+  <!-- PAGE 1: Przycisk -->
+  <div id="page-1" class="hidden">
+    <div class="card">
+      <div class="card-title">Zdjęcie przycisku ściennego</div>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:14px">Wgraj zdjęcie fizycznego panelu — pojawi się w instrukcji.</p>
+      <div class="img-drop" id="btn-drop" onclick="document.getElementById('btn-input').click()" ondragover="event.preventDefault()" ondrop="handleBtnDrop(event)">
+        <div class="img-ph" id="btn-ph"><div class="ic">📷</div><p>Kliknij lub przeciągnij zdjęcie</p><small>PNG · JPG · WEBP</small></div>
+        <img id="btn-prev" class="hidden" src="" alt="przycisk" style="width:100%;max-height:220px;object-fit:contain;background:#f9fafb">
+      </div>
+      <input type="file" id="btn-input" accept="image/*" class="hidden" onchange="handleBtnFile(this.files[0])">
+      <button class="btn btn-danger btn-sm hidden" id="btn-rm" onclick="removeBtnImg()" style="margin-top:8px">Usuń zdjęcie</button>
+    </div>
+    <div class="nav-btns">
+      <button class="btn btn-outline" onclick="goTo(0)">← Wstecz</button>
+      <button class="btn btn-dark" onclick="goTo(2)">Dalej →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 2: Sekcje i strefy -->
+  <div id="page-2" class="hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span style="font-size:15px;font-weight:700">Sekcje i strefy</span>
+      <button class="btn btn-dark btn-sm" onclick="addSection()">+ Dodaj sekcję</button>
+    </div>
+    <div style="font-size:12px;color:#9ca3af;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin-bottom:12px;line-height:1.6">
+      <strong style="color:#374151">Sekcja</strong> = pomieszczenie / obszar (np. ENGINEERING) z jedną grafiką rzutu.<br>
+      Do każdej sekcji dodajesz strefy (np. S1, S2, S3) z osobną logiką sterowania.
+    </div>
+    <div id="sections-list"></div>
+    <div id="sections-empty" class="card hidden" style="text-align:center;padding:40px;color:#d1d5db">
+      <div style="font-size:32px;margin-bottom:8px">🏢</div>
+      <div style="font-size:13px">Brak sekcji. Kliknij "+ Dodaj sekcję".</div>
+    </div>
+    <div class="nav-btns">
+      <button class="btn btn-outline" onclick="goTo(1)">← Wstecz</button>
+      <button class="btn btn-dark" onclick="goTo(3)">Dalej →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 3: Logika -->
+  <div id="page-3" class="hidden">
+    <div class="card">
+      <div class="card-title">Podgląd logiki stref</div>
+      <div id="logic-prev"></div>
+      <p style="font-size:11px;color:#9ca3af;margin-top:10px">Aby edytować — wróć do kroku "Sekcje".</p>
+    </div>
+    <div class="nav-btns">
+      <button class="btn btn-outline" onclick="goTo(2)">← Wstecz</button>
+      <button class="btn btn-dark" onclick="goTo(4)">Podgląd →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 4: Podgląd -->
+  <div id="page-4" class="hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <span style="font-size:15px;font-weight:700">Podgląd instrukcji</span>
+      <button class="btn btn-green btn-sm" onclick="openExport()">⬇ Eksportuj</button>
+    </div>
+    <div id="preview-out"></div>
+    <div class="nav-btns">
+      <button class="btn btn-outline" onclick="goTo(3)">← Wstecz</button>
+      <button class="btn btn-green" onclick="openExport()">Eksportuj →</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div class="overlay hidden" id="export-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Eksportuj instrukcję</div>
+      <button class="modal-close" onclick="closeExport()">×</button>
+    </div>
+    <div class="info-box">
+      <p>100% lokalnie — bez internetu, bez API.</p>
+      ✓ Plik PDF bezpośrednio z przeglądarki<br>
+      ✓ Kolorowe karty stref, grafiki rzutów<br>
+      ✓ Logika sterowania z krokami i strzałkami<br>
+      ✓ Alternatywnie: HTML do wydruku (Ctrl+P)
+    </div>
+    <div id="exp-status" class="hidden status-bar"></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-green btn-full" id="btn-exp-pdf" onclick="exportPDF()">⬇ Pobierz PDF</button>
+      <button class="btn btn-outline btn-full" onclick="exportHTML()" style="font-size:12px">⬇ Pobierz HTML</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF libs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
