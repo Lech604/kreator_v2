@@ -152,7 +152,7 @@ function renderSections(){
 
     let zonesHTML=sec.zones.map(z=>{
       const c=COL(z.colorId);
-      const ACTION_LABELS={'short1':'1. krótkie','long1':'1. długie','long2':'2. długie','short2':'2. krótkie'};
+      const ACTION_LABELS={'short1':'krótkie','long1':'długie','long2':'2× długie','short2':'2× krótkie'};
       const ACTION_CSS={'short1':'at-short1','long1':'at-long1','long2':'at-long2','short2':'at-short2'};
       const keysH=(z.buttonKeys||[]).map(k=>{
         const acts=k.actions||[];
@@ -363,7 +363,7 @@ function buildHTMLContent(){
     sec.zones.forEach(z=>{
       const c=COL(z.colorId);
       let inner='';
-      const ACTION_LABELS_E={'short1':'1. krótkie naciśnięcie','long1':'1. długie przytrzymanie','long2':'2. długie przytrzymanie','short2':'2. krótkie naciśnięcie'};
+      const ACTION_LABELS_E={'short1':'krótkie naciśnięcie','long1':'długie przytrzymanie','long2':'2× długie przytrzymanie','short2':'2× krótkie naciśnięcie'};
       const ACTION_COLORS={'short1':'#dbeafe','long1':'#e0e7ff','long2':'#ede9fe','short2':'#fce7f3'};
       const ACTION_TEXT={'short1':'#1e40af','long1':'#3730a3','long2':'#5b21b6','short2':'#9d174d'};
       if(z.buttonKeys&&z.buttonKeys.length){
