@@ -11,7 +11,7 @@ const ACTION_TYPES = [
   { value: 'off',      label: 'Wyłącz',               cls: 'action-off' },
   { value: 'up',       label: 'Rozjaśnia ▲ (UP)',      cls: 'action-up' },
   { value: 'down',     label: 'Ściemnia ▼ (DOWN)',   cls: 'action-down' },
-  { value: 'down',     label: 'UP / DOWN ▲/▼ ',         cls: 'a' },
+  { value: 'up/down',     label: 'UP / DOWN ▲/▼ ',         cls: 'action-up/down' },
   { value: 'scene',    label: 'Scena / Preset',        cls: 'action-scene' },
   { value: 'hold_up',  label: 'Przytrzymaj ▲',        cls: 'action-up' },
   { value: 'hold_dn',  label: 'Przytrzymaj ▼',        cls: 'action-down' },
