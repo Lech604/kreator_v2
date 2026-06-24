@@ -513,11 +513,50 @@ EKSPORT PDF
 ========================================== */
 async function exportPDF() {
   const { jsPDF } = window.jspdf;
+
+  /* ------------------------------------------------
+     KROK 1 – Zaladuj czcionke z polskimi znakami
+     Roboto-Regular.ttf (Apache 2.0, ~140KB)
+     z jsDelivr CDN – bez zadnych licencji platnych
+  ------------------------------------------------ */
+  async function loadFont() {
+    try {
+      // Uzywamy czcionki Roboto z publicznie dostepnego CDN
+      const url = 'https://cdn.jsdelivr.net/npm/@fontsource/roboto@5/files/roboto-latin-ext-400-normal.woff2';
+      // woff2 nie dziala z jsPDF – potrzebujemy TTF
+      // Lepszy CDN z TTF:
+      const ttfUrl = 'https://cdn.jsdelivr.net/npm/roboto-font@0.1.0/fonts/Roboto/roboto-regular-webfont.ttf';
+      const resp = await fetch(ttfUrl);
+      if (!resp.ok) throw new Error('font fetch failed');
+      const buf  = await resp.arrayBuffer();
+      const b64  = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      return b64;
+    } catch(e) {
+      console.warn('Font load failed, using helvetica:', e);
+      return null;
+    }
+  }
+
+  const fontB64 = await loadFont();
+
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
 
+  if (fontB64) {
+    doc.addFileToVFS('Roboto-Regular.ttf', fontB64);
+    doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+    doc.addFileToVFS('Roboto-Bold.ttf', fontB64);    // bold fallback = same file
+    doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
+    doc.setFont('Roboto', 'normal');
+  }
+
+  /* ------------------------------------------------
+     Helpery
+  ------------------------------------------------ */
   const PW = 210, PH = 297, ML = 18, MR = 18, MT = 20, MB = 20;
   const CW = PW - ML - MR;
   let y = MT;
+
+  const usePL = !!fontB64; // uzywamy polskich znakow jesli czcionka sie zaladowala
 
   const title      = val('docTitle')    || 'Instrukcja sterowania oswietleniem';
   const location   = val('docLocation');
@@ -533,46 +572,49 @@ async function exportPDF() {
   const YELLOW = [255, 251, 230];
   const AMBER  = [245, 158, 11];
 
-  // -------------------------------------------------------
-  // safeText: zamiana polskich liter + znakow specjalnych
-  // jsPDF domyslnie uzywa latin1 (ISO-8859-1)
-  // Rozwiazanie: uzyj doc.setLanguage + setFont z UTF-8
-  // ale najprosciej: zamien wszystkie znaki na latin odpowiedniki
-  // -------------------------------------------------------
   function safeText(str) {
     if (str === null || str === undefined) return '';
-    return String(str)
-      // Polskie znaki -> odpowiedniki ASCII
-      .replace(/Ą/g,'A').replace(/ą/g,'a')   // A/a z ogonkiem
-      .replace(/Ć/g,'C').replace(/ć/g,'c')   // C/c z kreseczka
-      .replace(/Ę/g,'E').replace(/ę/g,'e')   // E/e z ogonkiem
-      .replace(/Ł/g,'L').replace(/ł/g,'l')   // L/l z kreseczka
-      .replace(/Ń/g,'N').replace(/ń/g,'n')   // N/n z kreseczka
-      .replace(/Ó/g,'O').replace(/ó/g,'o')   // O/o z akcentem
-      .replace(/Ś/g,'S').replace(/ś/g,'s')   // S/s z kreseczka
-      .replace(/Ż/g,'Z').replace(/ż/g,'z')   // Z/z z kropka
-      .replace(/Ź/g,'Z').replace(/ź/g,'z')   // Z/z z kreseczka
-      // Strzalki / symbole -> tekst
-      .replace(/▲/g, '^').replace(/△/g, '^')  // trojkat w gore
-      .replace(/▼/g, 'v').replace(/▽/g, 'v')  // trojkat w dol
-      .replace(/↗/g, '^').replace(/↘/g, 'v')
-      .replace(/↑/g, '^').replace(/↓/g, 'v')
-      // Inne czesto uzywane
-      .replace(/→/g, '->').replace(/←/g, '<-')
-      .replace(/–/g, '-').replace(/—/g, '-')
-      .replace(/°/g, 'deg').replace(/²/g, '2')
-      .replace(/×/g, 'x').replace(/÷/g, '/')
+    const s = String(str)
+      // Strzalki -> tekst (jsPDF nie renderuje Unicode arrows nawet w TTF)
+      .replace(/▲/g,'^').replace(/▼/g,'v')
+      .replace(/↑/g,'^').replace(/↓/g,'v')
+      .replace(/↗/g,'^').replace(/↘/g,'v')
+      .replace(/→/g,'->').replace(/←/g,'<-')
+      .replace(/–/g,'-').replace(/—/g,'-')
       .replace(/‘/g,"'").replace(/’/g,"'")
       .replace(/“/g,'"').replace(/”/g,'"')
-      // Emoji i pozostale non-ASCII -> usun
-      .replace(/[^ -~ -ÿ]/g, '');
+      // Emoji Unicode bloki -> usun
+      .replace(/[🀀-🿿]/gu,'')
+      .replace(/[☀-➿]/gu,'');
+
+    if (usePL) {
+      // Czcionka Roboto obsluguje lacinski-ext (polskie znaki OK)
+      // Jednak jsPDF wymaga aby string byl latin1-safe dla operacji wewnetrznych.
+      // Uzywamy encodeURIComponent trick:
+      return s; // Roboto TTF obsluguje polskie bezposrednio
+    }
+    // Fallback bez czcionki: zamiana na ASCII
+    return s
+      .replace(/Ą/g,'A').replace(/ą/g,'a')
+      .replace(/Ć/g,'C').replace(/ć/g,'c')
+      .replace(/Ę/g,'E').replace(/ę/g,'e')
+      .replace(/Ł/g,'L').replace(/ł/g,'l')
+      .replace(/Ń/g,'N').replace(/ń/g,'n')
+      .replace(/Ó/g,'O').replace(/ó/g,'o')
+      .replace(/Ś/g,'S').replace(/ś/g,'s')
+      .replace(/Ż/g,'Z').replace(/ż/g,'z')
+      .replace(/Ź/g,'Z').replace(/ź/g,'z')
+      .replace(/[^ -~ -ÿ]/g,'');
   }
 
-  // Zamiana nazw akcji: usun emoji i zamien strzalki
   function safeActionLabel(label) {
     if (!label) return '-';
-    return safeText(label)
-      .replace(/s+/g,' ').trim() || '-';
+    return safeText(label).replace(/s+/g,' ').trim() || '-';
+  }
+
+  function setF(style, size) {
+    doc.setFont(usePL ? 'Roboto' : 'helvetica', style || 'normal');
+    doc.setFontSize(size || 10);
   }
 
   function checkPage(needed) {
@@ -580,16 +622,14 @@ async function exportPDF() {
   }
 
   function wrap(text, maxW, fs) {
-    doc.setFontSize(fs);
+    setF('normal', fs);
     return doc.splitTextToSize(safeText(text), maxW);
   }
 
-  // Rysuje wycentrowany obraz w podanym obszarze
   function addCenteredImage(src, maxW, maxH) {
     try {
       const ip = doc.getImageProperties(src);
-      let iw = maxW;
-      let ih = iw * ip.height / ip.width;
+      let iw = maxW, ih = iw * ip.height / ip.width;
       if (ih > maxH) { ih = maxH; iw = ih * ip.width / ip.height; }
       checkPage(ih + 6);
       const x = ML + (CW - iw) / 2;
@@ -598,23 +638,23 @@ async function exportPDF() {
     } catch(e) {}
   }
 
-  // ── NAGLOWEK ──────────────────────────────────────────
+  /* ------------------------------------------------
+     NAGLOWEK
+  ------------------------------------------------ */
   doc.setFillColor(...ACCENT);
   doc.rect(ML, y, CW, 18, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  setF('bold', 13);
   doc.setTextColor(...WHITE);
   const titleLines = wrap(title, CW - 8, 13);
   doc.text(titleLines[0], ML + 4, y + 7);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  setF('normal', 9);
   let meta = [];
   if (location)   meta.push('Lokalizacja: ' + safeText(location));
   if (panelModel) meta.push('Model: ' + safeText(panelModel));
   if (meta.length) doc.text(meta.join('   |   '), ML + 4, y + 14);
   y += 22;
 
-  // ── UWAGA GLOBALNA ────────────────────────────────────
+  /* UWAGA GLOBALNA */
   if (globalNote.trim()) {
     const gLines = wrap('Uwaga: ' + globalNote, CW - 10, 9);
     const gH = Math.max(10, gLines.length * 5 + 6);
@@ -625,64 +665,52 @@ async function exportPDF() {
     doc.line(ML, y, ML, y + gH);
     doc.rect(ML + 0.8, y, CW - 0.8, gH, 'F');
     doc.setTextColor(120, 53, 15);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    setF('normal', 9);
     doc.text(gLines, ML + 4, y + 4.5);
     y += gH + 5;
   }
 
-  // ── RZUT POMIESZCZENIA ────────────────────────────────
+  /* RZUT POMIESZCZENIA */
   if (state.floorPlan) {
     checkPage(50);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    setF('bold', 10);
     doc.setTextColor(...ACCENT);
-    doc.text('Rzut pomieszczenia', ML, y + 5);
+    doc.text(safeText('Rzut pomieszczenia'), ML, y + 5);
     y += 8;
     addCenteredImage(state.floorPlan, CW, 100);
   }
 
-  // ── PANELE ────────────────────────────────────────────
+  /* PANELE */
   state.panels.forEach(panel => {
     checkPage(18);
-
-    // Naglowek panelu
     doc.setFillColor(235, 242, 255);
     doc.setDrawColor(...BORDER);
     doc.setLineWidth(0.3);
     doc.rect(ML, y, CW, 9, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    setF('bold', 10);
     doc.setTextColor(...ACCENT);
     doc.text(safeText('Panel: ' + panel.name), ML + 3, y + 6);
     y += 12;
 
-    // Zdjecie przycisku – wycentrowane
-    if (panel.image) {
-      addCenteredImage(panel.image, 60, 50);
-    }
+    if (panel.image) addCenteredImage(panel.image, 60, 50);
 
     const filledKeys = panel.keys.filter(k => k.name || k.action);
     if (filledKeys.length === 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(9);
-      doc.setTextColor(...MUTED);
-      doc.text('Brak skonfigurowanych klawiszy', ML + 3, y + 4);
+      setF('normal', 9); doc.setTextColor(...MUTED);
+      doc.text(safeText('Brak skonfigurowanych klawiszy'), ML + 3, y + 4);
       y += 8;
     } else {
-      // Kolumny: Klawisz | Co steruje | Akcja | Tryb
       const C = [
-        { x: ML,       w: 22  },
-        { x: ML+22,    w: 64  },
-        { x: ML+86,    w: 55  },
-        { x: ML+141,   w: CW-141 },
+        { x: ML,     w: 22 },
+        { x: ML+22,  w: 64 },
+        { x: ML+86,  w: 55 },
+        { x: ML+141, w: CW-141 },
       ];
-      const HEADS = ['Klawisz', 'Co steruje', 'Akcja', 'Tryb'];
+      const HEADS = ['Klawisz','Co steruje','Akcja','Tryb'];
       checkPage(8);
       doc.setFillColor(...ACCENT);
       doc.rect(ML, y, CW, 7, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      setF('bold', 8);
       doc.setTextColor(...WHITE);
       C.forEach((c, i) => doc.text(HEADS[i], c.x + 2, y + 5));
       y += 7;
@@ -696,17 +724,11 @@ async function exportPDF() {
         doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
         doc.line(ML, y + rH, ML + CW, y + rH);
         doc.setTextColor(...DARK);
-        // Klawisz
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+        setF('bold', 8);
         doc.text(safeText(k.label || '-'), C[0].x + 2, y + 5);
-        // Co steruje
-        doc.setFont('helvetica', 'normal');
-        const nameStr = safeText(k.name || '');
-        doc.text(doc.splitTextToSize(nameStr, C[1].w - 4)[0] || '-', C[1].x + 2, y + 5);
-        // Akcja – usun emoji/strzalki ze standardowych etykiet
-        const actionLabel = safeActionLabel(ai.label);
-        doc.text(doc.splitTextToSize(actionLabel, C[2].w - 4)[0] || '-', C[2].x + 2, y + 5);
-        // Tryb
+        setF('normal', 8);
+        doc.text(doc.splitTextToSize(safeText(k.name || '-'), C[1].w - 4)[0], C[1].x + 2, y + 5);
+        doc.text(doc.splitTextToSize(safeActionLabel(ai.label), C[2].w - 4)[0], C[2].x + 2, y + 5);
         doc.text(safeText(mi.label), C[3].x + 2, y + 5);
         y += rH;
       });
@@ -715,83 +737,70 @@ async function exportPDF() {
     y += 3;
   });
 
-  // ── SENSORY ───────────────────────────────────────────
+  /* SENSORY */
   const fs2 = state.sensors.filter(s => s.name || s.action);
   if (fs2.length) {
     checkPage(20);
     doc.setFillColor(235, 242, 255);
     doc.setDrawColor(...BORDER);
     doc.rect(ML, y, CW, 9, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...ACCENT);
-    doc.text('Sensory / czujniki', ML + 3, y + 6);
+    setF('bold', 10); doc.setTextColor(...ACCENT);
+    doc.text(safeText('Sensory / czujniki'), ML + 3, y + 6);
     y += 12;
 
-    const SC = [{ x: ML, w: 55 }, { x: ML+55, w: 65 }, { x: ML+120, w: CW-120 }];
-    const SH = ['Typ', 'Lokalizacja', 'Dzialanie'];
+    const SC = [{ x:ML,w:55 },{ x:ML+55,w:65 },{ x:ML+120,w:CW-120 }];
+    const SH = ['Typ','Lokalizacja','Dzialanie'];
     doc.setFillColor(...ACCENT);
     doc.rect(ML, y, CW, 7, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(...WHITE);
-    SC.forEach((c, i) => doc.text(SH[i], c.x + 2, y + 5));
+    setF('bold', 8); doc.setTextColor(...WHITE);
+    SC.forEach((c,i) => doc.text(SH[i], c.x+2, y+5));
     y += 7;
 
     fs2.forEach((s, i) => {
       const ti = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
       const rH = 7;
       checkPage(rH);
-      if (i % 2 === 1) { doc.setFillColor(...LIGHT); doc.rect(ML, y, CW, rH, 'F'); }
+      if (i%2===1) { doc.setFillColor(...LIGHT); doc.rect(ML,y,CW,rH,'F'); }
       doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
-      doc.line(ML, y + rH, ML + CW, y + rH);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(...DARK);
-      doc.text(safeActionLabel(doc.splitTextToSize(ti.label, SC[0].w - 4)[0] || '-'), SC[0].x + 2, y + 5);
-      doc.text(safeText(doc.splitTextToSize(s.name || '-', SC[1].w - 4)[0]), SC[1].x + 2, y + 5);
-      doc.text(safeText(doc.splitTextToSize(s.action || '-', SC[2].w - 4)[0]), SC[2].x + 2, y + 5);
+      doc.line(ML, y+rH, ML+CW, y+rH);
+      setF('normal', 8); doc.setTextColor(...DARK);
+      doc.text(safeActionLabel(doc.splitTextToSize(ti.label, SC[0].w-4)[0]||'-'), SC[0].x+2, y+5);
+      doc.text(safeText(doc.splitTextToSize(s.name||'-',SC[1].w-4)[0]), SC[1].x+2, y+5);
+      doc.text(safeText(doc.splitTextToSize(s.action||'-',SC[2].w-4)[0]), SC[2].x+2, y+5);
       y += rH;
     });
     y += 5;
   }
 
-  // ── UWAGI ─────────────────────────────────────────────
+  /* UWAGI */
   const fn2 = state.notes.filter(n => n.text.trim());
   if (fn2.length) {
     checkPage(14);
     doc.setFillColor(235, 242, 255);
     doc.setDrawColor(...BORDER);
     doc.rect(ML, y, CW, 9, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...ACCENT);
-    doc.text('Uwagi / scenariusze', ML + 3, y + 6);
+    setF('bold', 10); doc.setTextColor(...ACCENT);
+    doc.text(safeText('Uwagi / scenariusze'), ML + 3, y + 6);
     y += 12;
-
     fn2.forEach((n, i) => {
-      const lines = wrap((i + 1) + '. ' + n.text, CW - 6, 9);
+      const lines = wrap((i+1) + '. ' + n.text, CW-6, 9);
       checkPage(lines.length * 5 + 4);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(...DARK);
-      doc.text(lines, ML + 3, y + 4);
+      setF('normal', 9); doc.setTextColor(...DARK);
+      doc.text(lines, ML+3, y+4);
       y += lines.length * 5 + 3;
     });
   }
 
-  // ── STOPKA ────────────────────────────────────────────
+  /* STOPKA */
   const np = doc.internal.getNumberOfPages();
   for (let i = 1; i <= np; i++) {
     doc.setPage(i);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...MUTED);
-    doc.text('Strona ' + i + ' / ' + np, PW / 2, PH - 10, { align: 'center' });
-    if (location) doc.text(safeText(location), ML, PH - 10);
+    setF('normal', 7.5); doc.setTextColor(...MUTED);
+    doc.text('Strona ' + i + ' / ' + np, PW/2, PH-10, { align: 'center' });
+    if (location) doc.text(safeText(location), ML, PH-10);
   }
 
-  doc.save((val('docTitle') || 'instrukcja').replace(/[^a-zA-Z0-9_\-]/g, '_') + '.pdf');
+  doc.save((val('docTitle')||'instrukcja').replace(/[^a-zA-Z0-9_\-]/g,'_') + '.pdf');
 }
 
 
