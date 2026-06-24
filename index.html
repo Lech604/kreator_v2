@@ -60,6 +60,17 @@
         <label for="docNote">Uwaga globalna <span class="optional">(opcjonalnie)</span></label>
         <textarea id="docNote" rows="2" placeholder="np. Brak ruchu przez 20 min → automatyczne wyłączenie (NOPRESENS)"></textarea>
       </div>
+      <div class="field">
+        <label>Rzut pomieszczenia <span class="optional">(opcjonalnie)</span></label>
+        <div class="upload-area">
+          <label class="btn-upload" for="floorPlanInput">
+            🗺 Wybierz zdjęcie / rzut
+          </label>
+          <input type="file" id="floorPlanInput" accept="image/*" style="display:none">
+          <button class="btn-img-remove" id="btnRemoveFloorPlan" style="display:none">✕ Usuń rzut</button>
+        </div>
+        <img id="floorPlanPreview" src="" alt="Rzut pomieszczenia" class="floor-plan-thumb" style="display:none">
+      </div>
     </section>
 
     <section class="card">
