@@ -1,21 +1,21 @@
 /* ==========================================
-   KREATOR INSTRUKCJI STEROWANIA OŚWIETLENIEM
-   Wersja 2.0 – przepisany od zera
+KREATOR INSTRUKCJI STEROWANIA OŚWIETLENIEM
+Wersja 2.1 – zdjęcia, bez daty
 ========================================== */
 
 /* ---------- TYPY AKCJI ---------- */
 const ACTION_TYPES = [
-  { value: '',        label: '— wybierz —',      cls: '' },
-  { value: 'onoff',   label: 'Włącz / Wyłącz',   cls: 'action-onoff' },
-  { value: 'on',      label: 'Włącz',             cls: 'action-on' },
-  { value: 'off',     label: 'Wyłącz',            cls: 'action-off' },
-  { value: 'up',      label: 'Ściemnia ▲ (UP)',   cls: 'action-up' },
-  { value: 'down',    label: 'Rozjaśnia ▼ (DOWN)',cls: 'action-down' },
-  { value: 'scene',   label: 'Scena / Preset',    cls: 'action-scene' },
-  { value: 'hold_up', label: 'Przytrzymaj ▲',     cls: 'action-up' },
-  { value: 'hold_dn', label: 'Przytrzymaj ▼',     cls: 'action-down' },
-  { value: 'group',   label: 'Wywołanie grupy',   cls: 'action-other' },
-  { value: 'other',   label: 'Inne',              cls: 'action-other' },
+  { value: '',         label: '— wybierz —',        cls: '' },
+  { value: 'onoff',    label: 'Włącz / Wyłącz',      cls: 'action-onoff' },
+  { value: 'on',       label: 'Włącz',                cls: 'action-on' },
+  { value: 'off',      label: 'Wyłącz',               cls: 'action-off' },
+  { value: 'up',       label: 'Ściemnia ▲ (UP)',      cls: 'action-up' },
+  { value: 'down',     label: 'Rozjaśnia ▼ (DOWN)',   cls: 'action-down' },
+  { value: 'scene',    label: 'Scena / Preset',        cls: 'action-scene' },
+  { value: 'hold_up',  label: 'Przytrzymaj ▲',        cls: 'action-up' },
+  { value: 'hold_dn',  label: 'Przytrzymaj ▼',        cls: 'action-down' },
+  { value: 'group',    label: 'Wywołanie grupy',       cls: 'action-other' },
+  { value: 'other',    label: 'Inne',                  cls: 'action-other' },
 ];
 
 const PRESS_MODES = [
@@ -26,30 +26,30 @@ const PRESS_MODES = [
 ];
 
 const SENSOR_TYPES = [
-  { value: 'motion',  label: '🏃 Czujnik ruchu (PIR)' },
-  { value: 'daylight',label: '☀️ Czujnik jasności (DALI)' },
-  { value: 'timer',   label: '⏱ Timer / harmonogram' },
-  { value: 'bms',     label: '🏢 BMS / system nadrzędny' },
-  { value: 'other',   label: '⚙️ Inny' },
+  { value: 'motion',    label: '🏃 Czujnik ruchu (PIR)' },
+  { value: 'daylight',  label: '☀️ Czujnik jasności (DALI)' },
+  { value: 'timer',     label: '⏱ Timer / harmonogram' },
+  { value: 'bms',       label: '🏢 BMS / system nadrzędny' },
+  { value: 'other',     label: '⚙️ Inny' },
 ];
 
 /* ---------- STAN APLIKACJI ---------- */
 let state = {
+  floorPlan: null,   // base64 rzut pomieszczenia
   panels: [],
   sensors: [],
   notes: [],
 };
 
-let panelCounter = 0;
-let keyCounter = 0;
+let panelCounter  = 0;
+let keyCounter    = 0;
 let sensorCounter = 0;
-let noteCounter = 0;
+let noteCounter   = 0;
 
 /* ---------- INICJALIZACJA ---------- */
 document.addEventListener('DOMContentLoaded', () => {
   loadState();
 
-  // Podgląd na zmiany formularza
   ['docTitle','docLocation','docPanel','docNote'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => {
       saveState();
@@ -64,30 +64,77 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDOCX').addEventListener('click', exportDOCX);
   document.getElementById('btnClear').addEventListener('click', clearAll);
 
+  // Upload rzutu pomieszczenia
+  const fpInput = document.getElementById('floorPlanInput');
+  if (fpInput) {
+    fpInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        state.floorPlan = ev.target.result;
+        saveState();
+        renderPreview();
+        // Pokaż podgląd rzutu
+        const preview = document.getElementById('floorPlanPreview');
+        if (preview) {
+          preview.src = state.floorPlan;
+          preview.style.display = 'block';
+        }
+        const removeBtn = document.getElementById('btnRemoveFloorPlan');
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const removeFpBtn = document.getElementById('btnRemoveFloorPlan');
+  if (removeFpBtn) {
+    removeFpBtn.addEventListener('click', () => {
+      state.floorPlan = null;
+      saveState();
+      renderPreview();
+      const preview = document.getElementById('floorPlanPreview');
+      if (preview) { preview.src = ''; preview.style.display = 'none'; }
+      if (fpInput) fpInput.value = '';
+      removeFpBtn.style.display = 'none';
+    });
+  }
+
   renderPreview();
 });
 
 /* ==========================================
-   PANELE
+PANELE
 ========================================== */
 function addPanel(data) {
   panelCounter++;
   const id = data?.id || panelCounter;
   const panel = {
     id,
-    name: data?.name || ('Panel ' + id),
-    keys: data?.keys || [],
+    name:  data?.name  || ('Panel ' + id),
+    image: data?.image || null,  // zdjęcie panelu/przycisku
+    keys:  data?.keys  || [],
   };
   state.panels.push(panel);
 
   const el = createPanelEl(panel);
   document.getElementById('panelsContainer').appendChild(el);
 
-  // Jeśli brak kluczy przy nowym panelu, dodaj 4 domyślne
   if (!data?.keys?.length) {
     for (let i = 1; i <= 4; i++) addKey(panel.id, { label: 'K' + i });
   } else {
     data.keys.forEach(k => addKey(panel.id, k));
+  }
+
+  // Przywróć zdjęcie panelu jeśli było zapisane
+  if (panel.image) {
+    const img = document.getElementById('panel-img-' + panel.id);
+    const prev = document.getElementById('panel-img-preview-' + panel.id);
+    if (img) img.style.display = 'block';
+    if (prev) { prev.src = panel.image; prev.style.display = 'block'; }
+    const removeBtn = document.getElementById('panel-img-remove-' + panel.id);
+    if (removeBtn) removeBtn.style.display = 'inline-block';
   }
 
   saveState();
@@ -105,7 +152,17 @@ function createPanelEl(panel) {
         <div class="panel-num">${panel.id}</div>
         <input type="text" class="panel-name-input" value="${esc(panel.name)}" placeholder="Nazwa panelu / lokalizacja">
       </div>
-      <button class="btn-danger" onclick="removePanel(${panel.id})">✕ Usuń panel</button>
+      <div class="panel-header-right">
+        <label class="btn-upload" title="Dodaj zdjęcie przycisku">
+          📷 Zdjęcie przycisku
+          <input type="file" accept="image/*" id="panel-file-${panel.id}" style="display:none">
+        </label>
+        <button class="btn-img-remove" id="panel-img-remove-${panel.id}" style="display:none" title="Usuń zdjęcie">✕ Zdjęcie</button>
+        <button class="btn-danger" onclick="removePanel(${panel.id})">✕ Usuń panel</button>
+      </div>
+    </div>
+    <div class="panel-img-row" id="panel-img-${panel.id}" style="display:none">
+      <img id="panel-img-preview-${panel.id}" src="" alt="zdjęcie przycisku" class="panel-img-preview">
     </div>
     <div class="panel-body">
       <table class="keys-table">
@@ -120,24 +177,57 @@ function createPanelEl(panel) {
         </thead>
         <tbody id="keys-${panel.id}"></tbody>
       </table>
-      <div class="keys-table-footer">
-        <button class="btn-add" onclick="addKey(${panel.id})">+ Dodaj klawisz</button>
+      <div class="panel-footer">
+        <button class="btn-add" onclick="addKey(${panel.id})">+ Klawisz</button>
       </div>
     </div>
   `;
 
-  el.querySelector('.panel-name-input').addEventListener('input', (e) => {
+  // Zdarzenia: zmiana nazwy
+  el.querySelector('.panel-name-input').addEventListener('input', e => {
     const p = state.panels.find(p => p.id === panel.id);
     if (p) p.name = e.target.value;
-    saveState();
-    renderPreview();
+    saveState(); renderPreview();
+  });
+
+  // Upload zdjęcia przycisku
+  const fileInput = el.querySelector('#panel-file-' + panel.id);
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const p = state.panels.find(p => p.id === panel.id);
+      if (p) p.image = ev.target.result;
+      const imgRow = document.getElementById('panel-img-' + panel.id);
+      const imgEl  = document.getElementById('panel-img-preview-' + panel.id);
+      if (imgRow) imgRow.style.display = 'block';
+      if (imgEl)  { imgEl.src = ev.target.result; imgEl.style.display = 'block'; }
+      const removeBtn = document.getElementById('panel-img-remove-' + panel.id);
+      if (removeBtn) removeBtn.style.display = 'inline-block';
+      saveState(); renderPreview();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Usuń zdjęcie przycisku
+  el.querySelector('#panel-img-remove-' + panel.id).addEventListener('click', () => {
+    const p = state.panels.find(p => p.id === panel.id);
+    if (p) p.image = null;
+    const imgRow = document.getElementById('panel-img-' + panel.id);
+    const imgEl  = document.getElementById('panel-img-preview-' + panel.id);
+    if (imgRow) imgRow.style.display = 'none';
+    if (imgEl)  imgEl.src = '';
+    fileInput.value = '';
+    const removeBtn = document.getElementById('panel-img-remove-' + panel.id);
+    if (removeBtn) removeBtn.style.display = 'none';
+    saveState(); renderPreview();
   });
 
   return el;
 }
 
 function removePanel(id) {
-  if (!confirm('Usunąć ten panel wraz ze wszystkimi klawiszami?')) return;
   state.panels = state.panels.filter(p => p.id !== id);
   const el = document.getElementById('panel-' + id);
   if (el) el.remove();
@@ -146,17 +236,17 @@ function removePanel(id) {
 }
 
 /* ==========================================
-   KLAWISZE
+KLAWISZE
 ========================================== */
 function addKey(panelId, data) {
   keyCounter++;
-  const id = data?.id || keyCounter;
+  const id  = data?.id     || keyCounter;
   const key = {
     id,
-    label: data?.label || '',
-    name: data?.name || '',
+    label:  data?.label  || '',
+    name:   data?.name   || '',
     action: data?.action || '',
-    mode: data?.mode || 'short',
+    mode:   data?.mode   || 'short',
   };
 
   const panel = state.panels.find(p => p.id === panelId);
@@ -169,10 +259,11 @@ function addKey(panelId, data) {
   row.id = 'key-' + panelId + '-' + id;
   row.innerHTML = `
     <td>
-      <input type="text" class="key-label-input" value="${esc(key.label)}" placeholder="K1" maxlength="6">
+      <input type="text" class="key-label-input" value="${esc(key.label)}" placeholder="K1" maxlength="6"
+        style="width:50px;text-align:center;font-weight:700;font-size:13px">
     </td>
     <td>
-      <input type="text" class="key-name-input" value="${esc(key.name)}" placeholder="np. Oświetlenie biurka, Taśma LED...">
+      <input type="text" class="key-name-input" value="${esc(key.name)}" placeholder="np. Oświetlenie ogólne">
     </td>
     <td>
       <select class="key-action-select">
@@ -185,33 +276,24 @@ function addKey(panelId, data) {
       </select>
     </td>
     <td>
-      <button class="btn-icon" onclick="removeKey(${panelId},${id})" title="Usuń klawisz">✕</button>
+      <button class="btn-row-del" title="Usuń klawisz" onclick="removeKey(${panelId},${id})">✕</button>
     </td>
   `;
 
-  // Zdarzenia
-  const [labelIn, nameIn, actionSel, modeSel] = [
-    row.querySelector('.key-label-input'),
-    row.querySelector('.key-name-input'),
-    row.querySelector('.key-action-select'),
-    row.querySelector('.key-mode-select'),
-  ];
+  function update() {
+    const k = panel?.keys.find(k => k.id === id);
+    if (!k) return;
+    k.label  = row.querySelector('.key-label-input').value;
+    k.name   = row.querySelector('.key-name-input').value;
+    k.action = row.querySelector('.key-action-select').value;
+    k.mode   = row.querySelector('.key-mode-select').value;
+    saveState(); renderPreview();
+  }
 
-  const update = () => {
-    key.label = labelIn.value;
-    key.name = nameIn.value;
-    key.action = actionSel.value;
-    key.mode = modeSel.value;
-    saveState();
-    renderPreview();
-  };
-
-  labelIn.addEventListener('input', update);
-  nameIn.addEventListener('input', update);
-  actionSel.addEventListener('change', update);
-  modeSel.addEventListener('change', update);
-
+  row.querySelectorAll('input,select').forEach(el => el.addEventListener('change', update));
+  row.querySelectorAll('input').forEach(el => el.addEventListener('input', update));
   tbody.appendChild(row);
+  saveState(); renderPreview();
 }
 
 function removeKey(panelId, keyId) {
@@ -219,21 +301,20 @@ function removeKey(panelId, keyId) {
   if (panel) panel.keys = panel.keys.filter(k => k.id !== keyId);
   const row = document.getElementById('key-' + panelId + '-' + keyId);
   if (row) row.remove();
-  saveState();
-  renderPreview();
+  saveState(); renderPreview();
 }
 
 /* ==========================================
-   SENSORY
+SENSORY
 ========================================== */
 function addSensor(data) {
   sensorCounter++;
   const id = data?.id || sensorCounter;
   const sensor = {
     id,
-    type: data?.type || 'motion',
-    name: data?.name || '',
-    desc: data?.desc || '',
+    type:   data?.type   || 'motion',
+    name:   data?.name   || '',
+    action: data?.action || '',
   };
   state.sensors.push(sensor);
 
@@ -241,29 +322,32 @@ function addSensor(data) {
   el.className = 'sensor-block';
   el.id = 'sensor-' + id;
   el.innerHTML = `
-    <div class="field" style="flex:0 0 180px; margin:0">
-      <select class="sensor-type-sel">
-        ${SENSOR_TYPES.map(s => `<option value="${s.value}" ${sensor.type===s.value?'selected':''}>${s.label}</option>`).join('')}
+    <div class="sensor-row">
+      <select class="sensor-type-select">
+        ${SENSOR_TYPES.map(t => `<option value="${t.value}" ${sensor.type===t.value?'selected':''}>${t.label}</option>`).join('')}
       </select>
+      <input type="text" class="sensor-name-input" value="${esc(sensor.name)}" placeholder="Lokalizacja / opis czujnika">
+      <input type="text" class="sensor-action-input" value="${esc(sensor.action)}" placeholder="Co robi? np. wyłącza po 15 min">
+      <button class="btn-row-del" onclick="removeSensor(${id})">✕</button>
     </div>
-    <div class="field" style="flex:1; margin:0">
-      <input type="text" class="sensor-name-in" value="${esc(sensor.name)}" placeholder="Opis działania, np. Brak ruchu 20 min → wyłączenie">
-    </div>
-    <button class="btn-icon" onclick="removeSensor(${id})" title="Usuń">✕</button>
   `;
 
-  el.querySelector('.sensor-type-sel').addEventListener('change', (e) => {
-    sensor.type = e.target.value;
+  function update() {
+    const s = state.sensors.find(s => s.id === id);
+    if (!s) return;
+    s.type   = el.querySelector('.sensor-type-select').value;
+    s.name   = el.querySelector('.sensor-name-input').value;
+    s.action = el.querySelector('.sensor-action-input').value;
     saveState(); renderPreview();
-  });
-  el.querySelector('.sensor-name-in').addEventListener('input', (e) => {
-    sensor.name = e.target.value;
-    saveState(); renderPreview();
+  }
+
+  el.querySelectorAll('input,select').forEach(e => {
+    e.addEventListener('change', update);
+    e.addEventListener('input',  update);
   });
 
   document.getElementById('sensorsContainer').appendChild(el);
-  saveState();
-  renderPreview();
+  saveState(); renderPreview();
 }
 
 function removeSensor(id) {
@@ -274,7 +358,7 @@ function removeSensor(id) {
 }
 
 /* ==========================================
-   UWAGI
+UWAGI
 ========================================== */
 function addNote(data) {
   noteCounter++;
@@ -286,11 +370,15 @@ function addNote(data) {
   el.className = 'note-block';
   el.id = 'note-' + id;
   el.innerHTML = `
-    <textarea placeholder="np. Tryb NOPRESENS – brak ruchu przez 20 min powoduje wyłączenie opraw i przywrócenie czujnika.">${esc(note.text)}</textarea>
-    <button class="btn-icon" onclick="removeNote(${id})" title="Usuń">✕</button>
+    <div class="note-row">
+      <textarea class="note-textarea" rows="2" placeholder="np. Przy wejściu do sali priorytet ma zawsze scena 1">${esc(note.text)}</textarea>
+      <button class="btn-row-del" onclick="removeNote(${id})">✕</button>
+    </div>
   `;
-  el.querySelector('textarea').addEventListener('input', (e) => {
-    note.text = e.target.value;
+
+  el.querySelector('.note-textarea').addEventListener('input', e => {
+    const n = state.notes.find(n => n.id === id);
+    if (n) n.text = e.target.value;
     saveState(); renderPreview();
   });
 
@@ -306,12 +394,12 @@ function removeNote(id) {
 }
 
 /* ==========================================
-   PODGLĄD NA ŻYWO
+PODGLĄD NA ŻYWO
 ========================================== */
 function renderPreview() {
-  const title = val('docTitle') || 'Instrukcja sterowania oświetleniem';
-  const location = val('docLocation');
-  const panel = val('docPanel');
+  const title      = val('docTitle') || 'Instrukcja sterowania oświetleniem';
+  const location   = val('docLocation');
+  const panel      = val('docPanel');
   const globalNote = val('docNote');
 
   let html = '';
@@ -321,10 +409,17 @@ function renderPreview() {
     <div class="preview-title">${esc(title)}</div>
     <div class="preview-meta">
       ${location ? `<span>📍 ${esc(location)}</span>` : ''}
-      ${panel ? `<span>🎛 ${esc(panel)}</span>` : ''}
-      <span>📅 ${new Date().toLocaleDateString('pl-PL')}</span>
+      ${panel    ? `<span>🔲 ${esc(panel)}</span>`    : ''}
     </div>
   </div>`;
+
+  // Rzut pomieszczenia
+  if (state.floorPlan) {
+    html += `<div class="preview-floor-plan">
+      <div class="preview-subsection-title">Rzut pomieszczenia</div>
+      <img src="${state.floorPlan}" alt="Rzut pomieszczenia" style="max-width:100%;border-radius:4px;margin-top:6px">
+    </div>`;
+  }
 
   // Uwaga globalna
   if (globalNote.trim()) {
@@ -336,6 +431,13 @@ function renderPreview() {
     state.panels.forEach(panel => {
       html += `<div class="preview-section">
         <div class="preview-section-title">🎛 ${esc(panel.name)}</div>`;
+
+      // Zdjęcie przycisku
+      if (panel.image) {
+        html += `<div class="preview-panel-img">
+          <img src="${panel.image}" alt="Zdjęcie przycisku" style="max-height:120px;border-radius:6px;border:1px solid #ddd;margin-bottom:8px">
+        </div>`;
+      }
 
       const filledKeys = panel.keys.filter(k => k.name || k.action);
 
@@ -354,13 +456,13 @@ function renderPreview() {
           <tbody>`;
 
         filledKeys.forEach(k => {
-          const actionInfo = ACTION_TYPES.find(a => a.value === k.action) || { label: k.action, cls: 'action-other' };
-          const modeInfo = PRESS_MODES.find(m => m.value === k.mode) || { label: k.mode };
+          const actionInfo = ACTION_TYPES.find(a => a.value === k.action) || { label: k.action, cls: '' };
+          const modeInfo   = PRESS_MODES.find(m => m.value === k.mode)   || { label: k.mode };
           html += `<tr>
-            <td><span class="key-badge">${esc(k.label || '?')}</span></td>
+            <td><span class="key-badge">${esc(k.label || '—')}</span></td>
             <td>${esc(k.name)}</td>
-            <td>${k.action ? `<span class="action-badge ${actionInfo.cls}">${actionInfo.label}</span>` : '<span style="color:#9ca3af">—</span>'}</td>
-            <td style="font-size:11px;color:#6b7280">${modeInfo.label}</td>
+            <td><span class="action-badge ${actionInfo.cls}">${actionInfo.label}</span></td>
+            <td class="mode-cell">${modeInfo.label}</td>
           </tr>`;
         });
 
@@ -369,194 +471,204 @@ function renderPreview() {
 
       html += `</div>`;
     });
-  } else {
-    html += `<div class="preview-empty">Dodaj pierwszy panel używając przycisku "+ Dodaj panel"</div>`;
   }
 
   // Sensory
-  if (state.sensors.length > 0) {
+  const filledSensors = state.sensors.filter(s => s.name || s.action);
+  if (filledSensors.length > 0) {
     html += `<div class="preview-section">
-      <div class="preview-section-title">🌡 Sensory / automatyka</div>`;
-    state.sensors.forEach(s => {
-      const st = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
-      html += `<div class="preview-sensor-row">
-        <span class="sensor-icon">${st.label.split(' ')[0]}</span>
-        <div>
-          <strong>${st.label.substring(st.label.indexOf(' ')+1)}</strong>
-          ${s.name ? ': ' + esc(s.name) : ''}
-        </div>
-      </div>`;
+      <div class="preview-section-title">🌡 Sensory / czujniki</div>
+      <table class="preview-keys-table">
+        <thead><tr><th>Typ</th><th>Lokalizacja</th><th>Działanie</th></tr></thead>
+        <tbody>`;
+    filledSensors.forEach(s => {
+      const typeInfo = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
+      html += `<tr>
+        <td>${typeInfo.label}</td>
+        <td>${esc(s.name)}</td>
+        <td>${esc(s.action)}</td>
+      </tr>`;
     });
-    html += `</div>`;
+    html += `</tbody></table></div>`;
   }
 
   // Uwagi
-  if (state.notes.some(n => n.text.trim())) {
+  const filledNotes = state.notes.filter(n => n.text.trim());
+  if (filledNotes.length > 0) {
     html += `<div class="preview-section">
-      <div class="preview-section-title">⚠️ Uwagi</div>`;
-    state.notes.filter(n => n.text.trim()).forEach(n => {
-      html += `<div class="preview-note">${esc(n.text)}</div>`;
+      <div class="preview-section-title">⚠️ Uwagi / scenariusze</div>
+      <ul class="preview-notes">`;
+    filledNotes.forEach(n => {
+      html += `<li>${esc(n.text)}</li>`;
     });
-    html += `</div>`;
+    html += `</ul></div>`;
   }
 
   document.getElementById('preview-content').innerHTML = html;
 }
 
 /* ==========================================
-   EKSPORT PDF
+EKSPORT PDF
 ========================================== */
 async function exportPDF() {
-  const btn = document.getElementById('btnPDF');
-  btn.textContent = '⏳ Generuję PDF...';
-  btn.disabled = true;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const previewEl = document.getElementById('preview-doc');
 
   try {
-    const { jsPDF } = window.jspdf;
-    const content = document.getElementById('preview-content');
-    const canvas = await html2canvas(content, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      scrollX: 0,
-      scrollY: 0,
-      width: content.scrollWidth,
-      height: content.scrollHeight,
-    });
+    const canvas = await html2canvas(previewEl, { scale: 2, useCORS: true });
+    const imgData = canvas.toDataURL('image/png');
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const ratio = canvas.width / canvas.height;
+    const imgW  = pageW - 20;
+    const imgH  = imgW / ratio;
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.97);
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const margin = 10;
-    const imgW = pageW - margin * 2;
-    const imgH = (canvas.height * imgW) / canvas.width;
-
-    let yPos = margin;
-    let heightLeft = imgH;
-    pdf.addImage(imgData, 'JPEG', margin, yPos, imgW, imgH);
-    heightLeft -= (pageH - margin * 2);
-
-    while (heightLeft > 0) {
-      yPos = heightLeft - imgH + margin;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, yPos, imgW, imgH);
-      heightLeft -= (pageH - margin * 2);
+    if (imgH <= pageH - 20) {
+      doc.addImage(imgData, 'PNG', 10, 10, imgW, imgH);
+    } else {
+      let posY = 10;
+      let remainH = imgH;
+      let srcY = 0;
+      while (remainH > 0) {
+        const sliceH = Math.min(remainH, pageH - 20);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width  = canvas.width;
+        sliceCanvas.height = (sliceH / imgH) * canvas.height;
+        const ctx = sliceCanvas.getContext('2d');
+        ctx.drawImage(canvas, 0, srcY * (canvas.height / imgH), canvas.width, sliceCanvas.height, 0, 0, canvas.width, sliceCanvas.height);
+        doc.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', 10, posY, imgW, sliceH);
+        srcY += sliceH;
+        remainH -= sliceH;
+        if (remainH > 0) { doc.addPage(); posY = 10; }
+      }
     }
 
-    // Numeracja stron
-    const totalPages = pdf.internal.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      pdf.setPage(i);
-      pdf.setFontSize(9);
-      pdf.setTextColor(150);
-      pdf.text(i + ' / ' + totalPages, pageW / 2, pageH - 5, { align: 'center' });
-    }
-
-    const filename = (val('docTitle') || 'instrukcja').replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, '') + '.pdf';
-    pdf.save(filename);
-  } catch(e) {
-    alert('Błąd eksportu PDF: ' + e.message);
-  } finally {
-    btn.textContent = '⬇ Eksportuj PDF';
-    btn.disabled = false;
+    const title = val('docTitle') || 'instrukcja';
+    doc.save(title.replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf');
+  } catch (err) {
+    alert('Błąd eksportu PDF: ' + err.message);
   }
 }
 
 /* ==========================================
-   EKSPORT DOCX
+EKSPORT DOCX
 ========================================== */
 function exportDOCX() {
-  const btn = document.getElementById('btnDOCX');
-  btn.textContent = '⏳ Generuję DOCX...';
-  btn.disabled = true;
+  const title      = val('docTitle') || 'Instrukcja sterowania oświetleniem';
+  const location   = val('docLocation');
+  const panelModel = val('docPanel');
+  const globalNote = val('docNote');
+
+  let html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; margin: 2cm; }
+    h1   { font-size: 16pt; color: #1e3a5f; margin-bottom: 4px; }
+    .meta { font-size: 10pt; color: #555; margin-bottom: 16px; }
+    .meta span { margin-right: 16px; }
+    .note { background: #fffbe6; border-left: 4px solid #f59e0b; padding: 8px 12px; margin-bottom: 16px; font-size: 10pt; }
+    h2   { font-size: 13pt; color: #1e3a5f; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 12px; font-size: 10pt; }
+    th   { background: #1e3a5f; color: white; padding: 6px 8px; text-align: left; font-weight: 600; }
+    td   { border: 1px solid #ddd; padding: 5px 8px; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .key-badge { background: #1e3a5f; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9pt; font-weight: bold; }
+    ul   { margin: 4px 0; padding-left: 20px; }
+    li   { margin-bottom: 4px; }
+    img  { max-width: 200px; }
+    .floor-plan-img { max-width: 100%; margin-bottom: 12px; }
+  </style>
+  </head><body>
+  <h1>${esc(title)}</h1>
+  <div class="meta">
+    ${location   ? `<span>📍 ${esc(location)}</span>`   : ''}
+    ${panelModel ? `<span>🔲 ${esc(panelModel)}</span>` : ''}
+  </div>`;
+
+  // Rzut pomieszczenia
+  if (state.floorPlan) {
+    html += `<div><p><strong>Rzut pomieszczenia:</strong></p><img class="floor-plan-img" src="${state.floorPlan}" alt="Rzut pomieszczenia"></div>`;
+  }
+
+  if (globalNote.trim()) {
+    html += `<div class="note">ℹ️ ${esc(globalNote)}</div>`;
+  }
+
+  // Panele
+  state.panels.forEach(panel => {
+    html += `<h2>🎛 ${esc(panel.name)}</h2>`;
+
+    if (panel.image) {
+      html += `<div><img src="${panel.image}" alt="Zdjęcie przycisku" style="max-height:150px"></div>`;
+    }
+
+    const filledKeys = panel.keys.filter(k => k.name || k.action);
+    if (filledKeys.length > 0) {
+      html += `<table><thead><tr>
+        <th>Klawisz</th><th>Co steruje</th><th>Akcja</th><th>Tryb</th>
+      </tr></thead><tbody>`;
+      filledKeys.forEach(k => {
+        const actionInfo = ACTION_TYPES.find(a => a.value === k.action) || { label: k.action };
+        const modeInfo   = PRESS_MODES.find(m => m.value === k.mode)   || { label: k.mode };
+        html += `<tr>
+          <td><span class="key-badge">${esc(k.label || '—')}</span></td>
+          <td>${esc(k.name)}</td>
+          <td>${actionInfo.label}</td>
+          <td>${modeInfo.label}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+  });
+
+  // Sensory
+  const filledSensors = state.sensors.filter(s => s.name || s.action);
+  if (filledSensors.length > 0) {
+    html += `<h2>🌡 Sensory / czujniki</h2>
+    <table><thead><tr><th>Typ</th><th>Lokalizacja</th><th>Działanie</th></tr></thead><tbody>`;
+    filledSensors.forEach(s => {
+      const typeInfo = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
+      html += `<tr><td>${typeInfo.label}</td><td>${esc(s.name)}</td><td>${esc(s.action)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  // Uwagi
+  const filledNotes = state.notes.filter(n => n.text.trim());
+  if (filledNotes.length > 0) {
+    html += `<h2>⚠️ Uwagi / scenariusze</h2><ul>`;
+    filledNotes.forEach(n => { html += `<li>${esc(n.text)}</li>`; });
+    html += `</ul>`;
+  }
+
+  html += '</body></html>';
 
   try {
-    if (typeof htmlDocx === 'undefined') throw new Error('Biblioteka html-docx-js nie załadowała się.');
-
-    const title = val('docTitle') || 'Instrukcja sterowania oświetleniem';
-    const location = val('docLocation');
-    const panelModel = val('docPanel');
-    const globalNote = val('docNote');
-
-    let body = `<h1>${title}</h1>`;
-    if (location) body += `<p><b>Lokalizacja:</b> ${location}</p>`;
-    if (panelModel) body += `<p><b>Model panelu:</b> ${panelModel}</p>`;
-    if (globalNote) body += `<p><b>Uwaga:</b> ${globalNote}</p>`;
-
-    state.panels.forEach(panel => {
-      body += `<h2>${panel.name}</h2>`;
-      const filled = panel.keys.filter(k => k.name || k.action);
-      if (filled.length > 0) {
-        body += `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
-          <tr><th>Klawisz</th><th>Co steruje</th><th>Typ akcji</th><th>Tryb naciśnięcia</th></tr>`;
-        filled.forEach(k => {
-          const at = ACTION_TYPES.find(a => a.value === k.action);
-          const mt = PRESS_MODES.find(m => m.value === k.mode);
-          body += `<tr>
-            <td><b>${k.label || '?'}</b></td>
-            <td>${k.name || ''}</td>
-            <td>${at ? at.label : k.action}</td>
-            <td>${mt ? mt.label : k.mode}</td>
-          </tr>`;
-        });
-        body += `</table>`;
-      }
-    });
-
-    if (state.sensors.length > 0) {
-      body += `<h2>Sensory / automatyka</h2><ul>`;
-      state.sensors.forEach(s => {
-        const st = SENSOR_TYPES.find(t => t.value === s.type);
-        body += `<li>${st ? st.label : s.type}${s.name ? ': ' + s.name : ''}</li>`;
-      });
-      body += `</ul>`;
-    }
-
-    const notes = state.notes.filter(n => n.text.trim());
-    if (notes.length > 0) {
-      body += `<h2>Uwagi</h2><ul>`;
-      notes.forEach(n => body += `<li>${n.text}</li>`);
-      body += `</ul>`;
-    }
-
-    const html = `<html><head><meta charset="UTF-8"><style>
-      body{font-family:Calibri,Arial;font-size:11pt;}
-      h1{font-size:16pt;color:#1a56db;}
-      h2{font-size:13pt;color:#1a56db;border-bottom:1px solid #ccc;padding-bottom:4px;}
-      table{border-collapse:collapse;width:100%;margin-bottom:12px;}
-      th{background:#e8f0fe;font-weight:bold;}
-      td,th{border:1px solid #ccc;padding:5px 8px;font-size:10pt;}
-    </style></head><body>${body}</body></html>`;
-
     const blob = htmlDocx.asBlob(html);
-    const filename = title.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, '') + '.docx';
+    const filename = (val('docTitle') || 'instrukcja').replace(/[^a-zA-Z0-9_-]/g, '_') + '.docx';
     saveAs(blob, filename);
-  } catch(e) {
-    alert('Błąd eksportu DOCX: ' + e.message);
-  } finally {
-    btn.textContent = '📄 Eksportuj DOCX';
-    btn.disabled = false;
+  } catch (err) {
+    alert('Błąd eksportu DOCX: ' + err.message);
   }
 }
 
 /* ==========================================
-   ZAPIS / ODCZYT STANU (localStorage)
+ZAPIS / ODCZYT STANU
 ========================================== */
 function saveState() {
+  const data = {
+    title:      val('docTitle'),
+    location:   val('docLocation'),
+    panelModel: val('docPanel'),
+    note:       val('docNote'),
+    floorPlan:  state.floorPlan,
+    panels:     state.panels,
+    sensors:    state.sensors,
+    notes:      state.notes,
+  };
   try {
-    const data = {
-      title: val('docTitle'),
-      location: val('docLocation'),
-      panel: val('docPanel'),
-      note: val('docNote'),
-      panels: state.panels,
-      sensors: state.sensors,
-      notes: state.notes,
-      counters: { panel: panelCounter, key: keyCounter, sensor: sensorCounter, note: noteCounter },
-    };
     localStorage.setItem('kreator_v2_state', JSON.stringify(data));
-  } catch(e) { console.warn('saveState:', e); }
+  } catch (e) { /* localStorage pełne (base64 zdjęcia) */ }
 }
 
 function loadState() {
@@ -565,42 +677,59 @@ function loadState() {
     if (!raw) return;
     const data = JSON.parse(raw);
 
-    if (data.title)    document.getElementById('docTitle').value = data.title;
-    if (data.location) document.getElementById('docLocation').value = data.location;
-    if (data.panel)    document.getElementById('docPanel').value = data.panel;
-    if (data.note)     document.getElementById('docNote').value = data.note;
+    if (data.title)      document.getElementById('docTitle').value    = data.title;
+    if (data.location)   document.getElementById('docLocation').value = data.location;
+    if (data.panelModel) document.getElementById('docPanel').value    = data.panelModel;
+    if (data.note)       document.getElementById('docNote').value     = data.note;
 
-    if (data.counters) {
-      panelCounter = data.counters.panel || 0;
-      keyCounter = data.counters.key || 0;
-      sensorCounter = data.counters.sensor || 0;
-      noteCounter = data.counters.note || 0;
+    // Przywróć rzut pomieszczenia
+    if (data.floorPlan) {
+      state.floorPlan = data.floorPlan;
+      const preview = document.getElementById('floorPlanPreview');
+      if (preview) { preview.src = data.floorPlan; preview.style.display = 'block'; }
+      const removeBtn = document.getElementById('btnRemoveFloorPlan');
+      if (removeBtn) removeBtn.style.display = 'inline-block';
     }
 
-    (data.panels || []).forEach(p => {
-      state.panels.push({ id: p.id, name: p.name, keys: [] });
-      const el = createPanelEl({ id: p.id, name: p.name });
-      document.getElementById('panelsContainer').appendChild(el);
-      (p.keys || []).forEach(k => addKey(p.id, k));
-    });
+    panelCounter  = 0;
+    keyCounter    = 0;
+    sensorCounter = 0;
+    noteCounter   = 0;
 
+    (data.panels  || []).forEach(p => addPanel(p));
     (data.sensors || []).forEach(s => addSensor(s));
-    (data.notes || []).forEach(n => addNote(n));
-  } catch(e) { console.warn('loadState:', e); }
+    (data.notes   || []).forEach(n => addNote(n));
+
+  } catch (e) { console.error('loadState error', e); }
 }
 
-/* ==========================================
-   WYCZYŚĆ WSZYSTKO
-========================================== */
 function clearAll() {
-  if (!confirm('Wyczyścić całą instrukcję? Tej operacji nie można cofnąć.')) return;
+  if (!confirm('Wyczyścić wszystkie dane formularza?')) return;
   localStorage.removeItem('kreator_v2_state');
-  location.reload();
+
+  ['docTitle','docLocation','docNote'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('docPanel').value = '';
+
+  state = { floorPlan: null, panels: [], sensors: [], notes: [] };
+  panelCounter = keyCounter = sensorCounter = noteCounter = 0;
+
+  ['panelsContainer','sensorsContainer','notesContainer'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+
+  const preview = document.getElementById('floorPlanPreview');
+  if (preview) { preview.src = ''; preview.style.display = 'none'; }
+  const removeBtn = document.getElementById('btnRemoveFloorPlan');
+  if (removeBtn) removeBtn.style.display = 'none';
+  const fpInput = document.getElementById('floorPlanInput');
+  if (fpInput) fpInput.value = '';
+
+  renderPreview();
 }
 
-/* ==========================================
-   HELPERS
-========================================== */
+/* ---------- HELPERS ---------- */
 function val(id) {
   const el = document.getElementById(id);
   return el ? el.value.trim() : '';
@@ -609,8 +738,9 @@ function val(id) {
 function esc(str) {
   if (!str) return '';
   return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
