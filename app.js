@@ -512,48 +512,258 @@ EKSPORT PDF
 ========================================== */
 async function exportPDF() {
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const previewEl = document.getElementById('preview-doc');
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
 
-  try {
-    const canvas = await html2canvas(previewEl, { scale: 2, useCORS: true });
-    const imgData = canvas.toDataURL('image/png');
-    const pageW = doc.internal.pageSize.getWidth();
-    const pageH = doc.internal.pageSize.getHeight();
-    const ratio = canvas.width / canvas.height;
-    const imgW  = pageW - 20;
-    const imgH  = imgW / ratio;
+  const PW  = 210;
+  const PH  = 297;
+  const ML  = 18;
+  const MR  = 18;
+  const MT  = 20;
+  const MB  = 18;
+  const CW  = PW - ML - MR;
+  let y = MT;
 
-    if (imgH <= pageH - 20) {
-      doc.addImage(imgData, 'PNG', 10, 10, imgW, imgH);
-    } else {
-      let posY = 10;
-      let remainH = imgH;
-      let srcY = 0;
-      while (remainH > 0) {
-        const sliceH = Math.min(remainH, pageH - 20);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width  = canvas.width;
-        sliceCanvas.height = (sliceH / imgH) * canvas.height;
-        const ctx = sliceCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, srcY * (canvas.height / imgH), canvas.width, sliceCanvas.height, 0, 0, canvas.width, sliceCanvas.height);
-        doc.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', 10, posY, imgW, sliceH);
-        srcY += sliceH;
-        remainH -= sliceH;
-        if (remainH > 0) { doc.addPage(); posY = 10; }
-      }
+  const title      = val('docTitle')    || 'Instrukcja sterowania oswietleniem';
+  const location   = val('docLocation');
+  const panelModel = val('docPanel');
+  const globalNote = val('docNote');
+
+  const ACCENT = [30, 58, 95];
+  const WHITE  = [255, 255, 255];
+  const LIGHT  = [248, 250, 252];
+  const BORDER = [229, 231, 235];
+  const DARK   = [17, 24, 39];
+  const MUTED  = [107, 114, 128];
+  const YELLOW = [255, 251, 230];
+  const AMBER  = [245, 158, 11];
+
+  function checkPage(needed) {
+    if (y + needed > PH - MB) { doc.addPage(); y = MT; }
+  }
+
+  function safeText(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u')
+      .replace(/Ą/g,'A').replace(/ą/g,'a')
+      .replace(/Ć/g,'C').replace(/ć/g,'c')
+      .replace(/Ę/g,'E').replace(/ę/g,'e')
+      .replace(/Ł/g,'L').replace(/ł/g,'l')
+      .replace(/Ń/g,'N').replace(/ń/g,'n')
+      .replace(/Ó/g,'O').replace(/ó/g,'o')
+      .replace(/Ś/g,'S').replace(/ś/g,'s')
+      .replace(/Ź/g,'Z').replace(/ź/g,'z')
+      .replace(/Ż/g,'Z').replace(/ż/g,'z')
+      .replace(/[^ -]/g,'?');
+  }
+
+  function wrap(text, maxW, fs) {
+    doc.setFontSize(fs);
+    return doc.splitTextToSize(safeText(text), maxW);
+  }
+
+  // === NAGLOWEK ===
+  doc.setFillColor(...ACCENT);
+  doc.rect(ML, y, CW, 18, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...WHITE);
+  const titleLines = wrap(title, CW - 8, 13);
+  doc.text(titleLines[0], ML + 4, y + 7);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  let meta = [];
+  if (location)   meta.push('Lokalizacja: ' + safeText(location));
+  if (panelModel) meta.push('Model: ' + safeText(panelModel));
+  if (meta.length) doc.text(meta.join('   |   '), ML + 4, y + 14);
+  y += 22;
+
+  // === UWAGA GLOBALNA ===
+  if (globalNote.trim()) {
+    const gLines = wrap('Uwaga: ' + globalNote, CW - 8, 9);
+    const gH = gLines.length * 5 + 6;
+    checkPage(gH);
+    doc.setFillColor(...YELLOW);
+    doc.setDrawColor(...AMBER);
+    doc.setLineWidth(0.8);
+    doc.line(ML, y, ML, y + gH);
+    doc.setFillColor(...YELLOW);
+    doc.rect(ML + 0.8, y, CW - 0.8, gH, 'F');
+    doc.setTextColor(120, 53, 15);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(gLines, ML + 4, y + 4.5);
+    y += gH + 4;
+  }
+
+  // === RZUT POMIESZCZENIA ===
+  if (state.floorPlan) {
+    checkPage(50);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...ACCENT);
+    doc.text('Rzut pomieszczenia', ML, y + 5);
+    y += 8;
+    try {
+      const imgProps = doc.getImageProperties(state.floorPlan);
+      const imgW = Math.min(CW, 120);
+      const imgH = imgW * imgProps.height / imgProps.width;
+      checkPage(imgH + 6);
+      doc.addImage(state.floorPlan, imgProps.fileType || 'JPEG', ML, y, imgW, imgH);
+      y += imgH + 8;
+    } catch(e) {}
+  }
+
+  // === PANELE ===
+  state.panels.forEach(panel => {
+    checkPage(18);
+    doc.setFillColor(240, 245, 255);
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.3);
+    doc.rect(ML, y, CW, 9, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...ACCENT);
+    doc.text(safeText('Panel: ' + panel.name), ML + 3, y + 6);
+    y += 12;
+
+    if (panel.image) {
+      try {
+        const ip = doc.getImageProperties(panel.image);
+        const iw = Math.min(45, CW / 3);
+        const ih = iw * ip.height / ip.width;
+        checkPage(ih + 6);
+        doc.addImage(panel.image, ip.fileType || 'JPEG', ML, y, iw, ih);
+        y += ih + 4;
+      } catch(e) {}
     }
 
-    const title = val('docTitle') || 'instrukcja';
-    doc.save(title.replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf');
-  } catch (err) {
-    alert('Błąd eksportu PDF: ' + err.message);
+    const filledKeys = panel.keys.filter(k => k.name || k.action);
+    if (filledKeys.length === 0) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('Brak skonfigurowanych klawiszy', ML + 3, y + 4);
+      y += 8;
+    } else {
+      const C = [
+        { x: ML,       w: 22  },
+        { x: ML+22,    w: 64  },
+        { x: ML+86,    w: 55  },
+        { x: ML+141,   w: CW-141 },
+      ];
+      const HEADS = ['Klawisz','Co steruje','Akcja','Tryb'];
+      checkPage(8);
+      doc.setFillColor(...ACCENT);
+      doc.rect(ML, y, CW, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...WHITE);
+      C.forEach((c, i) => doc.text(HEADS[i], c.x + 2, y + 5));
+      y += 7;
+
+      filledKeys.forEach((k, i) => {
+        const ai = ACTION_TYPES.find(a => a.value === k.action) || { label: k.action || '' };
+        const mi = PRESS_MODES.find(m => m.value === k.mode)   || { label: k.mode   || '' };
+        const rH = 7;
+        checkPage(rH);
+        if (i % 2 === 1) { doc.setFillColor(...LIGHT); doc.rect(ML, y, CW, rH, 'F'); }
+        doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+        doc.line(ML, y + rH, ML + CW, y + rH);
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');   doc.setFontSize(8);
+        doc.text(safeText(k.label || '-'), C[0].x + 2, y + 5);
+        doc.setFont('helvetica', 'normal');
+        doc.text(safeText(doc.splitTextToSize(k.name || '', C[1].w - 4)[0] || '-'), C[1].x + 2, y + 5);
+        doc.text(safeText(doc.splitTextToSize(ai.label, C[2].w - 4)[0] || '-'), C[2].x + 2, y + 5);
+        doc.text(safeText(mi.label), C[3].x + 2, y + 5);
+        y += rH;
+      });
+      y += 5;
+    }
+    y += 3;
+  });
+
+  // === SENSORY ===
+  const fs2 = state.sensors.filter(s => s.name || s.action);
+  if (fs2.length) {
+    checkPage(20);
+    doc.setFillColor(240, 245, 255);
+    doc.setDrawColor(...BORDER);
+    doc.rect(ML, y, CW, 9, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...ACCENT);
+    doc.text('Sensory / czujniki', ML + 3, y + 6);
+    y += 12;
+
+    const SC = [{ x: ML, w: 55 }, { x: ML+55, w: 65 }, { x: ML+120, w: CW-120 }];
+    const SH = ['Typ','Lokalizacja','Dzialanie'];
+    doc.setFillColor(...ACCENT);
+    doc.rect(ML, y, CW, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...WHITE);
+    SC.forEach((c, i) => doc.text(SH[i], c.x + 2, y + 5));
+    y += 7;
+
+    fs2.forEach((s, i) => {
+      const ti = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
+      const rH = 7;
+      checkPage(rH);
+      if (i % 2 === 1) { doc.setFillColor(...LIGHT); doc.rect(ML, y, CW, rH, 'F'); }
+      doc.setDrawColor(...BORDER); doc.setLineWidth(0.2);
+      doc.line(ML, y + rH, ML + CW, y + rH);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...DARK);
+      doc.text(safeText(doc.splitTextToSize(ti.label, SC[0].w - 4)[0] || '-'), SC[0].x + 2, y + 5);
+      doc.text(safeText(doc.splitTextToSize(s.name || '-', SC[1].w - 4)[0]), SC[1].x + 2, y + 5);
+      doc.text(safeText(doc.splitTextToSize(s.action || '-', SC[2].w - 4)[0]), SC[2].x + 2, y + 5);
+      y += rH;
+    });
+    y += 5;
   }
+
+  // === UWAGI ===
+  const fn2 = state.notes.filter(n => n.text.trim());
+  if (fn2.length) {
+    checkPage(14);
+    doc.setFillColor(240, 245, 255);
+    doc.setDrawColor(...BORDER);
+    doc.rect(ML, y, CW, 9, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...ACCENT);
+    doc.text('Uwagi / scenariusze', ML + 3, y + 6);
+    y += 12;
+
+    fn2.forEach((n, i) => {
+      const lines = wrap((i + 1) + '. ' + n.text, CW - 6, 9);
+      checkPage(lines.length * 5 + 4);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...DARK);
+      doc.text(lines, ML + 3, y + 4);
+      y += lines.length * 5 + 3;
+    });
+  }
+
+  // === STOPKA ===
+  const np = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= np; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text('Strona ' + i + ' / ' + np, PW / 2, PH - 10, { align: 'center' });
+    if (location) doc.text(safeText(location), ML, PH - 10);
+  }
+
+  doc.save((val('docTitle') || 'instrukcja').replace(/[^a-zA-Z0-9_\-]/g, '_') + '.pdf');
 }
 
-/* ==========================================
-EKSPORT DOCX
-========================================== */
+
 function exportDOCX() {
   const title      = val('docTitle') || 'Instrukcja sterowania oświetleniem';
   const location   = val('docLocation');
