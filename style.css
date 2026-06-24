@@ -668,3 +668,104 @@ textarea {
   #topbar { padding: 0 12px; }
   #topbar-actions { gap: 6px; }
 }
+
+
+/* ==========================================
+   UPLOAD ZDJĘĆ — rzut + zdjęcie przycisku
+   ========================================== */
+
+/* Obszar uploadu */
+.upload-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Przycisk "Wybierz zdjęcie" */
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn-upload:hover {
+  background: #eef2ff;
+  border-color: var(--primary);
+}
+
+/* Przycisk usunięcia zdjęcia */
+.btn-img-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1.5px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--danger);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-img-remove:hover {
+  background: #fee2e2;
+}
+
+/* Miniatura rzutu pomieszczenia */
+.floor-plan-thumb {
+  display: block;
+  margin-top: 8px;
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+/* Rząd ze zdjęciem przycisku w panelu */
+.panel-img-row {
+  padding: 8px 16px 0 16px;
+}
+.panel-img-preview {
+  display: block;
+  max-height: 120px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+/* Prawa strona nagłówka panelu (przyciski) */
+.panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Podgląd — rzut pomieszczenia */
+.preview-floor-plan {
+  margin: 0 0 12px 0;
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Podgląd — zdjęcie panelu */
+.preview-panel-img {
+  margin-bottom: 8px;
+}
