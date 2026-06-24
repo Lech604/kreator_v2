@@ -1,539 +1,616 @@
-/* ============================================================
-   Kreator Instrukcji Oświetlenia — app.js
-   ============================================================ */
+/* ==========================================
+   KREATOR INSTRUKCJI STEROWANIA OŚWIETLENIEM
+   Wersja 2.0 – przepisany od zera
+========================================== */
 
-const COLS=[
-  {id:'blue',  bg:'#eff6ff',border:'#3b82f6',text:'#1e40af',dot:'#3b82f6'},
-  {id:'purple',bg:'#f5f3ff',border:'#8b5cf6',text:'#5b21b6',dot:'#8b5cf6'},
-  {id:'green', bg:'#ecfdf5',border:'#10b981',text:'#065f46',dot:'#10b981'},
-  {id:'amber', bg:'#fffbeb',border:'#f59e0b',text:'#78350f',dot:'#f59e0b'},
-  {id:'red',   bg:'#fef2f2',border:'#ef4444',text:'#7f1d1d',dot:'#ef4444'},
-  {id:'gray',  bg:'#f9fafb',border:'#6b7280',text:'#1f2937',dot:'#6b7280'},
+/* ---------- TYPY AKCJI ---------- */
+const ACTION_TYPES = [
+  { value: '',        label: '— wybierz —',      cls: '' },
+  { value: 'onoff',   label: 'Włącz / Wyłącz',   cls: 'action-onoff' },
+  { value: 'on',      label: 'Włącz',             cls: 'action-on' },
+  { value: 'off',     label: 'Wyłącz',            cls: 'action-off' },
+  { value: 'up',      label: 'Ściemnia ▲ (UP)',   cls: 'action-up' },
+  { value: 'down',    label: 'Rozjaśnia ▼ (DOWN)',cls: 'action-down' },
+  { value: 'scene',   label: 'Scena / Preset',    cls: 'action-scene' },
+  { value: 'hold_up', label: 'Przytrzymaj ▲',     cls: 'action-up' },
+  { value: 'hold_dn', label: 'Przytrzymaj ▼',     cls: 'action-down' },
+  { value: 'group',   label: 'Wywołanie grupy',   cls: 'action-other' },
+  { value: 'other',   label: 'Inne',              cls: 'action-other' },
 ];
-const COL=id=>COLS.find(c=>c.id===id)||COLS[0];
-const CTRL={button:'tylko przycisk',sensor:'tylko sensor',both:'przycisk + sensor'};
 
-let curStep=0;
-let btnImgB64=null;
-let secCnt=2, zoneCnt=10;
-
-let sections=[
-  mkSection(1,'ENGINEERING'),
+const PRESS_MODES = [
+  { value: 'short',   label: 'Krótkie' },
+  { value: 'long',    label: 'Długie (przytrzymanie)' },
+  { value: 'double',  label: 'Podwójne' },
+  { value: 'single',  label: 'Jedno naciśnięcie' },
 ];
-function mkSection(id,name){
-  return {id,name,image:null,zones:[mkZone(zoneCnt++,'S1','blue'),mkZone(zoneCnt++,'S2','purple'),mkZone(zoneCnt++,'S3','green')]};
-}
-function mkZone(id,name,colorId){
-  return {id,name,description:'',colorId,controlType:'button',buttonKeys:[],logicRules:[]};
-}
 
-// ── STEPS ────────────────────────────────────────────────────────────────
-const SNAMES=['Ustawienia','Przycisk','Sekcje','Logika','Podgląd'];
-function renderSteps(){
-  const bar=document.getElementById('steps-bar');bar.innerHTML='';
-  SNAMES.forEach((s,i)=>{
-    if(i>0){const d=document.createElement('div');d.className='step-sep';bar.appendChild(d);}
-    const b=document.createElement('button');
-    b.className='step-btn '+(i===curStep?'active':i<curStep?'done':'todo');
-    b.innerHTML=`<span class="step-num">${i<curStep?'✓':i+1}</span>${s}`;
-    b.onclick=()=>goTo(i);
-    bar.appendChild(b);
-  });
-}
-function goTo(n){
-  document.getElementById('page-'+curStep).classList.add('hidden');
-  curStep=n;
-  document.getElementById('page-'+curStep).classList.remove('hidden');
-  renderSteps();
-  if(n===3)renderLogic();
-  if(n===4)renderPreview();
-  window.scrollTo({top:0,behavior:'smooth'});
-}
+const SENSOR_TYPES = [
+  { value: 'motion',  label: '🏃 Czujnik ruchu (PIR)' },
+  { value: 'daylight',label: '☀️ Czujnik jasności (DALI)' },
+  { value: 'timer',   label: '⏱ Timer / harmonogram' },
+  { value: 'bms',     label: '🏢 BMS / system nadrzędny' },
+  { value: 'other',   label: '⚙️ Inny' },
+];
 
-// ── BUTTON IMAGE ─────────────────────────────────────────────────────────
-function handleBtnFile(f){
-  if(!f)return;
-  const r=new FileReader();
-  r.onload=ev=>{
-    btnImgB64=ev.target.result;
-    document.getElementById('btn-prev').src=btnImgB64;
-    document.getElementById('btn-prev').classList.remove('hidden');
-    document.getElementById('btn-ph').classList.add('hidden');
-    document.getElementById('btn-rm').classList.remove('hidden');
-  };
-  r.readAsDataURL(f);
-}
-function handleBtnDrop(ev){ev.preventDefault();handleBtnFile(ev.dataTransfer.files[0]);}
-function removeBtnImg(){
-  btnImgB64=null;
-  document.getElementById('btn-prev').classList.add('hidden');
-  document.getElementById('btn-ph').classList.remove('hidden');
-  document.getElementById('btn-rm').classList.add('hidden');
-}
+/* ---------- STAN APLIKACJI ---------- */
+let state = {
+  panels: [],
+  sensors: [],
+  notes: [],
+};
 
-// ── SECTIONS ─────────────────────────────────────────────────────────────
-function addSection(){sections.push(mkSection(secCnt++,'Sekcja '+secCnt));renderSections();}
-function delSection(sid){sections=sections.filter(s=>s.id!==sid);renderSections();}
-function toggleSection(sid){document.getElementById('sbody-'+sid).classList.toggle('hidden');}
-function setSec(sid,k,v){sections=sections.map(s=>s.id===sid?{...s,[k]:v}:s);}
+let panelCounter = 0;
+let keyCounter = 0;
+let sensorCounter = 0;
+let noteCounter = 0;
 
-function handleSecImgFile(sid,file){
-  if(!file)return;
-  const r=new FileReader();
-  r.onload=ev=>{
-    const b64=ev.target.result;
-    sections=sections.map(s=>s.id===sid?{...s,image:b64}:s);
-    const pr=document.getElementById('simg-prev-'+sid);
-    const ph=document.getElementById('simg-ph-'+sid);
-    const rm=document.getElementById('simg-rm-'+sid);
-    if(pr){pr.src=b64;pr.classList.remove('hidden');}
-    if(ph)ph.classList.add('hidden');
-    if(rm)rm.classList.remove('hidden');
-  };
-  r.readAsDataURL(file);
-}
-function removeSecImg(sid){
-  sections=sections.map(s=>s.id===sid?{...s,image:null}:s);
-  const pr=document.getElementById('simg-prev-'+sid);
-  const ph=document.getElementById('simg-ph-'+sid);
-  const rm=document.getElementById('simg-rm-'+sid);
-  if(pr){pr.src='';pr.classList.add('hidden');}
-  if(ph)ph.classList.remove('hidden');
-  if(rm)rm.classList.add('hidden');
-}
+/* ---------- INICJALIZACJA ---------- */
+document.addEventListener('DOMContentLoaded', () => {
+  loadState();
 
-// ── ZONES ─────────────────────────────────────────────────────────────────
-function addZone(sid){
-  sections=sections.map(s=>s.id===sid?{...s,zones:[...s.zones,mkZone(zoneCnt++,'S'+(s.zones.length+1),COLS[s.zones.length%COLS.length].id)]}:s);
-  renderSections();
-}
-function delZone(sid,zid){
-  sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.filter(z=>z.id!==zid)}:s);
-  renderSections();
-}
-function toggleZone(zid){document.getElementById('zbody-'+zid).classList.toggle('hidden');}
-function setZ(sid,zid,k,v){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,[k]:v}:z)}:s);}
-function setZColor(sid,zid,cid){setZ(sid,zid,'colorId',cid);renderSections();}
-function setZCtrl(sid,zid,v){setZ(sid,zid,'controlType',v);renderSections();}
-
-function addKey(sid,zid){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:[...z.buttonKeys,{id:Date.now(),label:'',pos:'left',actions:[{id:Date.now()+1,type:'short1',func:''}]}]}:z)}:s);renderSections();}
-function addAction(sid,zid,kid){
-  sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:z.buttonKeys.map(k=>{
-    if(k.id!==kid)return k;
-    const used=k.actions.map(a=>a.type);
-    const all=['short1','long1','long2','short2'];
-    const next=all.find(t=>!used.includes(t));
-    if(!next)return k;
-    return {...k,actions:[...k.actions,{id:Date.now(),type:next,func:''}]};
-  })}:z)}:s);renderSections();
-}
-function setAction(sid,zid,kid,aid,v){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:z.buttonKeys.map(k=>k.id===kid?{...k,actions:k.actions.map(a=>a.id===aid?{...a,func:v}:a)}:k)}:z)}:s);}
-function delAction(sid,zid,kid,aid){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:z.buttonKeys.map(k=>k.id===kid?{...k,actions:k.actions.filter(a=>a.id!==aid)}:k)}:z)}:s);renderSections();}
-function setKey(sid,zid,kid,f,v){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:z.buttonKeys.map(k=>k.id===kid?{...k,[f]:v}:k)}:z)}:s);}
-function delKey(sid,zid,kid){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,buttonKeys:z.buttonKeys.filter(k=>k.id!==kid)}:z)}:s);renderSections();}
-
-function addRule(sid,zid){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,logicRules:[...z.logicRules,{id:Date.now(),trigger:'',action:'',note:''}]}:z)}:s);renderSections();}
-function setRule(sid,zid,rid,f,v){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,logicRules:z.logicRules.map(r=>r.id===rid?{...r,[f]:v}:r)}:z)}:s);}
-function delRule(sid,zid,rid){sections=sections.map(s=>s.id===sid?{...s,zones:s.zones.map(z=>z.id===zid?{...z,logicRules:z.logicRules.filter(r=>r.id!==rid)}:z)}:s);renderSections();}
-
-function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
-// ── RENDER SECTIONS ───────────────────────────────────────────────────────
-function renderSections(){
-  const list=document.getElementById('sections-list');
-  const emp=document.getElementById('sections-empty');
-  list.innerHTML='';
-  emp.classList.toggle('hidden',sections.length>0);
-
-  sections.forEach(sec=>{
-    const totalZones=sec.zones.length;
-    const div=document.createElement('div');
-    div.className='sec-wrap';
-
-    let zonesHTML=sec.zones.map(z=>{
-      const c=COL(z.colorId);
-      const ACTION_LABELS={'short1':'krótkie','long1':'długie','long2':'2× długie','short2':'2× krótkie'};
-      const ACTION_CSS={'short1':'at-short1','long1':'at-long1','long2':'at-long2','short2':'at-short2'};
-      const keysH=(z.buttonKeys||[]).map(k=>{
-        const acts=k.actions||[];
-        const used=acts.map(a=>a.type);
-        const allTypes=['short1','long1','long2','short2'];
-        const canAdd=used.length<4;
-        const actionsH=acts.map(a=>`
-          <div class="action-row">
-            <span class="action-type ${ACTION_CSS[a.type]}">${ACTION_LABELS[a.type]}</span>
-            <input class="inp" style="font-size:12px" placeholder="np. ON/OFF, DIMM UP..." value="${e(a.func)}" oninput="setAction(${sec.id},${z.id},${k.id},${a.id},this.value)">
-            <button class="xbtn" onclick="delAction(${sec.id},${z.id},${k.id},${a.id})">×</button>
-          </div>`).join('');
-        return `<div class="key-row">
-          <div class="key-row-top">
-            <input class="inp" style="font-size:12px" placeholder="Nazwa klawisza np. K1" value="${e(k.label)}" oninput="setKey(${sec.id},${z.id},${k.id},'label',this.value)">
-            <div style="font-size:10px;color:#9ca3af;padding-top:6px">Pozycja na panelu</div>
-            <select class="inp" style="font-size:11px;padding:8px 5px" onchange="setKey(${sec.id},${z.id},${k.id},'pos',this.value)">
-              <option value="left"${k.pos==='left'?' selected':''}>lewa</option>
-              <option value="right"${k.pos==='right'?' selected':''}>prawa</option>
-              <option value="center"${k.pos==='center'?' selected':''}>środek</option>
-            </select>
-            <button class="xbtn" onclick="delKey(${sec.id},${z.id},${k.id})">×</button>
-          </div>
-          <div class="key-actions">
-            ${actionsH}
-            ${canAdd?`<button class="add-action-link" onclick="addAction(${sec.id},${z.id},${k.id})">+ dodaj akcję (${4-used.length} pozostałe)</button>`:'<span style="font-size:10px;color:#d1d5db;font-style:italic">Maksymalna liczba akcji osiągnięta</span>'}
-          </div>
-        </div>`;
-      }).join('');
-      const rulesH=z.logicRules.map((r,ri)=>`
-        <div class="rule-box">
-          <div class="rule-hdr"><span class="rule-lbl">Reguła ${ri+1}</span><button class="xbtn" onclick="delRule(${sec.id},${z.id},${r.id})">×</button></div>
-          <div class="grid2" style="margin-bottom:7px">
-            <div><label class="lbl" style="font-size:9px">Wyzwalacz</label><input class="inp" style="font-size:12px" placeholder="np. Naciśnięcie przycisku" value="${e(r.trigger)}" oninput="setRule(${sec.id},${z.id},${r.id},'trigger',this.value)"></div>
-            <div><label class="lbl" style="font-size:9px">Akcja</label><input class="inp" style="font-size:12px" placeholder="np. Sensor zablokowany" value="${e(r.action)}" oninput="setRule(${sec.id},${z.id},${r.id},'action',this.value)"></div>
-          </div>
-          <div><label class="lbl" style="font-size:9px">Uwaga</label><input class="inp" style="font-size:12px" placeholder="np. Po 20 min braku ruchu — powrót do sensora" value="${e(r.note)}" oninput="setRule(${sec.id},${z.id},${r.id},'note',this.value)"></div>
-        </div>`).join('');
-      const cDotsH=COLS.map(cl=>`<div class="cdot${z.colorId===cl.id?' sel':''}" style="background:${cl.dot}" onclick="setZColor(${sec.id},${z.id},'${cl.id}')"></div>`).join('');
-      const ctrlH=['button','sensor','both'].map(v=>`<button class="ctrl-btn${z.controlType===v?' active':''}" onclick="setZCtrl(${sec.id},${z.id},'${v}')">${CTRL[v]}</button>`).join('');
-      return `<div class="zone-wrap" style="border-color:${c.border}">
-        <div class="zone-hdr" style="background:${c.bg}" onclick="toggleZone(${z.id})">
-          <div class="zone-hdr-l">
-            <div class="zdot" style="background:${c.dot}"></div>
-            <span class="zname" id="zname-${z.id}" style="color:${c.text}">${e(z.name)||'Strefa'}</span>
-            <span class="zpill" style="background:${c.dot}22;color:${c.text}">${CTRL[z.controlType]}</span>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="event.stopPropagation();delZone(${sec.id},${z.id})" class="btn btn-danger btn-sm" style="font-size:11px;padding:3px 9px">usuń</button>
-            <span style="color:#9ca3af;font-size:11px">▼</span>
-          </div>
-        </div>
-        <div class="zbody hidden" id="zbody-${z.id}">
-          <div class="grid2 field">
-            <div><label class="lbl">Nazwa strefy</label><input class="inp" value="${e(z.name)}" oninput="setZ(${sec.id},${z.id},'name',this.value);document.getElementById('zname-${z.id}').textContent=this.value||'Strefa'"></div>
-            <div><label class="lbl">Kolor</label><div class="color-row">${cDotsH}</div></div>
-          </div>
-          <div class="field"><label class="lbl">Opis strefy</label><textarea class="inp" rows="2" placeholder="np. Oświetlenie biurek przy oknie" oninput="setZ(${sec.id},${z.id},'description',this.value)">${e(z.description)}</textarea></div>
-          <div class="field"><label class="lbl">Typ sterowania</label><div class="ctrl-btns">${ctrlH}</div></div>
-          <div class="field">
-            <div class="sub-hdr"><label class="lbl">Przyciski na panelu</label><button class="add-link" onclick="addKey(${sec.id},${z.id})">+ dodaj</button></div>
-            ${keysH||'<p class="empty-msg">Brak przypisanych klawiszy</p>'}
-          </div>
-          <div class="field" style="margin-bottom:0">
-            <div class="sub-hdr"><label class="lbl">Logika działania</label><button class="add-link" onclick="addRule(${sec.id},${z.id})">+ dodaj regułę</button></div>
-            ${rulesH||'<p class="empty-msg">Brak zdefiniowanej logiki</p>'}
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-
-    div.innerHTML=`
-      <div class="sec-hdr" onclick="toggleSection(${sec.id})">
-        <div class="sec-hdr-l">
-          <div class="sec-icon">${e(sec.name).charAt(0)}</div>
-          <span class="sec-name-txt" id="secname-${sec.id}">${e(sec.name)||'Sekcja'}</span>
-          <span class="sec-count">${totalZones} stref${totalZones===1?'a':totalZones<5?'y':''}
-          </span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button onclick="event.stopPropagation();delSection(${sec.id})" class="btn btn-danger btn-sm" style="font-size:11px">usuń sekcję</button>
-          <span style="color:#9ca3af;font-size:12px">▼</span>
-        </div>
-      </div>
-      <div class="sec-body" id="sbody-${sec.id}">
-        <div class="field">
-          <label class="lbl">Nazwa sekcji / pomieszczenia</label>
-          <input class="inp" value="${e(sec.name)}" oninput="setSec(${sec.id},'name',this.value);document.getElementById('secname-${sec.id}').textContent=this.value||'Sekcja';document.querySelector('#sec-card-${sec.id} .sec-icon').textContent=this.value.charAt(0)||'?'">
-        </div>
-        <div class="field">
-          <label class="lbl">Grafika rzutu / schematu sekcji (opcjonalna)</label>
-          <div class="img-drop" style="min-height:90px" onclick="document.getElementById('simg-inp-${sec.id}').click()" ondragover="event.preventDefault()" ondrop="(function(ev){ev.preventDefault();handleSecImgFile(${sec.id},ev.dataTransfer.files[0])})(event)">
-            <div class="img-ph" id="simg-ph-${sec.id}" ${sec.image?'style="display:none"':''}>
-              <div class="ic">🖼</div><p style="font-size:12px">Kliknij lub przeciągnij rzut / schemat</p>
-            </div>
-            <img id="simg-prev-${sec.id}" src="${sec.image||''}" ${sec.image?'':'class="hidden"'} style="width:100%;max-height:180px;object-fit:contain;background:#f9fafb;border-radius:8px">
-          </div>
-          <input type="file" id="simg-inp-${sec.id}" accept="image/*" class="hidden" onchange="handleSecImgFile(${sec.id},this.files[0])">
-          <button id="simg-rm-${sec.id}" class="btn btn-danger btn-sm ${sec.image?'':'hidden'}" onclick="removeSecImg(${sec.id})" style="margin-top:6px;font-size:11px">Usuń grafikę</button>
-        </div>
-        <div style="margin-bottom:8px">
-          <div class="sub-hdr" style="margin-bottom:8px">
-            <label class="lbl" style="margin:0">Strefy w sekcji</label>
-            <button class="add-link" onclick="addZone(${sec.id})">+ dodaj strefę</button>
-          </div>
-          ${zonesHTML||'<p class="empty-msg" style="padding:8px 0">Brak stref — kliknij "+ dodaj strefę"</p>'}
-        </div>
-      </div>`;
-
-    // fix sec-icon selector
-    div.id='sec-card-'+sec.id;
-    list.appendChild(div);
-  });
-}
-
-// ── LOGIC PREVIEW ─────────────────────────────────────────────────────────
-function renderLogic(){
-  const c=document.getElementById('logic-prev');c.innerHTML='';
-  sections.forEach(sec=>{
-    const sh=document.createElement('div');
-    sh.style.cssText='font-weight:700;font-size:13px;color:#111827;margin:10px 0 6px;padding-left:2px';
-    sh.textContent=sec.name;
-    c.appendChild(sh);
-    sec.zones.forEach(z=>{
-      const col=COL(z.colorId);
-      const rulesH=z.logicRules.length===0
-        ?'<p style="padding:6px 10px;font-size:11px;color:#d1d5db;font-style:italic">Brak reguł logiki</p>'
-        :z.logicRules.map((r,i)=>`
-          <div class="lp-rule">
-            <span class="lp-num">${i+1}.</span>
-            <div class="chips">
-              ${r.trigger?`<span class="chip">${e(r.trigger)}</span>`:''}
-              ${r.trigger&&r.action?`<span class="chip-arr">→</span>`:''}
-              ${r.action?`<span class="chip-res" style="background:${col.bg};color:${col.text}">${e(r.action)}</span>`:''}
-              ${r.note?`<span class="chip-note">${e(r.note)}</span>`:''}
-            </div>
-          </div>`).join('');
-      const div=document.createElement('div');
-      div.className='lp-zone';div.style.borderColor=col.border+'44';
-      div.innerHTML=`
-        <div class="lp-hdr" style="background:${col.bg}">
-          <div class="zdot" style="background:${col.dot}"></div>
-          <span style="font-weight:700;font-size:12px;color:${col.text}">${e(z.name)}</span>
-          <span style="font-size:11px;color:#6b7280;margin-left:4px">— ${e(z.description)||'brak opisu'}</span>
-        </div>
-        <div class="lp-body">${rulesH}</div>`;
-      c.appendChild(div);
+  // Podgląd na zmiany formularza
+  ['docTitle','docLocation','docPanel','docNote'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      saveState();
+      renderPreview();
     });
   });
-}
 
-// ── MINI PREVIEW ───────────────────────────────────────────────────────────
-function renderPreview(){
-  const title=document.getElementById('f-title').value;
-  const subtitle=document.getElementById('f-subtitle').value;
-  const tags=document.getElementById('f-tags').value;
-  const note=document.getElementById('f-note').value;
-  const tagsH=tags.split(',').filter(Boolean).map(t=>`<span class="pv-tag">${e(t.trim())}</span>`).join('');
+  document.getElementById('btnAddPanel').addEventListener('click', addPanel);
+  document.getElementById('btnAddSensor').addEventListener('click', addSensor);
+  document.getElementById('btnAddNote').addEventListener('click', addNote);
+  document.getElementById('btnPDF').addEventListener('click', exportPDF);
+  document.getElementById('btnDOCX').addEventListener('click', exportDOCX);
+  document.getElementById('btnClear').addEventListener('click', clearAll);
 
-  let sectionsH='';
-  sections.forEach((sec,si)=>{
-    const imgH=sec.image?`<div style="text-align:center;margin:8px 0 12px"><img src="${sec.image}" style="max-width:100%;max-height:160px;object-fit:contain;border-radius:8px;border:1px solid #f3f4f6"></div>`:'';
-    const btnH=btnImgB64?`<div style="text-align:center;margin:8px 0 12px"><img src="${btnImgB64}" style="max-height:100px;object-fit:contain;border-radius:6px;border:1px solid #f3f4f6"></div>`:'';
-    sectionsH+=`
-      <div style="margin-bottom:14px">
-        <div style="font-weight:700;font-size:12px;color:#111827;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-          <span style="background:#111827;color:#fff;border-radius:5px;padding:1px 7px;font-size:10px">${e(sec.name)}</span>
-        </div>
-        ${imgH}
-        ${btnH}
-      </div>`;
-  });
+  renderPreview();
+});
 
-  document.getElementById('preview-out').innerHTML=`
-    <div class="pv-hdr">
-      <div class="pv-title">${e(title)}</div>
-      <div class="pv-sub">${e(subtitle)}</div>
-      <div class="pv-tags">${tagsH}</div>
-    </div>
-    <div class="card" style="padding:14px">
-      ${sectionsH}
-      ${note?`<div class="note-box">${e(note)}</div>`:''}
-    </div>`;
-}
+/* ==========================================
+   PANELE
+========================================== */
+function addPanel(data) {
+  panelCounter++;
+  const id = data?.id || panelCounter;
+  const panel = {
+    id,
+    name: data?.name || ('Panel ' + id),
+    keys: data?.keys || [],
+  };
+  state.panels.push(panel);
 
-// ── EXPORT HTML ────────────────────────────────────────────────────────────
-function buildHTMLContent(){
-  const title=document.getElementById('f-title').value||'Instrukcja';
-  const subtitle=document.getElementById('f-subtitle').value;
-  const tags=document.getElementById('f-tags').value;
-  const note=document.getElementById('f-note').value;
+  const el = createPanelEl(panel);
+  document.getElementById('panelsContainer').appendChild(el);
 
-  const tagsH=tags.split(',').filter(Boolean)
-    .map(t=>`<span style="font-size:10px;font-family:monospace;background:rgba(255,255,255,.12);color:#6ee7b7;padding:2px 9px;border-radius:4px">${e(t.trim())}</span>`).join('');
-
-  function flowChip(txt,bg,color){return`<span style="display:inline-block;font-size:11px;padding:4px 10px;border-radius:6px;background:${bg};color:${color};font-weight:500">${e(txt)}</span>`;}
-  function arrow(){return`<span style="font-size:13px;color:#9ca3af;margin:0 3px">→</span>`;}
-
-  let sectionsDetailH='';
-  sections.forEach(sec=>{
-    // zona grid usunięty — wyświetlamy tylko logikę stref
-
-    const imgH=sec.image?`<div style="text-align:center;margin:14px 0">
-      <img src="${sec.image}" style="max-height:200px;object-fit:contain;border-radius:10px;border:1px solid #e5e7eb">
-    </div>`:'';
-
-    let zonesLogicH='';
-    sec.zones.forEach(z=>{
-      const c=COL(z.colorId);
-      let inner='';
-      const ACTION_LABELS_E={'short1':'krótkie naciśnięcie','long1':'długie przytrzymanie','long2':'2× długie przytrzymanie','short2':'2× krótkie naciśnięcie'};
-      const ACTION_COLORS={'short1':'#dbeafe','long1':'#e0e7ff','long2':'#ede9fe','short2':'#fce7f3'};
-      const ACTION_TEXT={'short1':'#1e40af','long1':'#3730a3','long2':'#5b21b6','short2':'#9d174d'};
-      if(z.buttonKeys&&z.buttonKeys.length){
-        z.buttonKeys.forEach(k=>{
-          const acts=k.actions||[];
-          if(!acts.length)return;
-          inner+=`<div style="border:1px solid #f3f4f6;border-radius:8px;overflow:hidden;margin-bottom:10px">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:#f9fafb;border-bottom:1px solid #f3f4f6">
-              <code style="background:#e5e7eb;padding:2px 8px;border-radius:4px;font-size:11px;color:#374151;font-weight:600">${e(k.label)||'Klawisz'}</code>
-              <span style="font-size:10px;color:#9ca3af">pozycja: ${e(k.pos)}</span>
-            </div>
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
-              <thead><tr>
-                <th style="text-align:left;padding:5px 8px;background:#fff;font-size:9px;font-weight:600;text-transform:uppercase;color:#9ca3af;width:180px">Typ naciśnięcia</th>
-                <th style="text-align:left;padding:5px 8px;background:#fff;font-size:9px;font-weight:600;text-transform:uppercase;color:#9ca3af">Akcja</th>
-              </tr></thead><tbody>
-              ${acts.map(a=>`<tr>
-                <td style="padding:5px 8px;border-bottom:1px solid #f9fafb">
-                  <span style="display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:4px;background:${ACTION_COLORS[a.type]};color:${ACTION_TEXT[a.type]}">${ACTION_LABELS_E[a.type]||a.type}</span>
-                </td>
-                <td style="padding:5px 8px;border-bottom:1px solid #f9fafb;color:#374151;font-weight:500">${e(a.func)}</td>
-              </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>`;
-        });
-      }
-      if(z.logicRules.length){
-        z.logicRules.forEach((r,i)=>{
-          const parts=[];
-          if(r.trigger)parts.push(flowChip(r.trigger,'#f3f4f6','#374151'));
-          if(r.trigger&&r.action)parts.push(arrow());
-          if(r.action)parts.push(flowChip(r.action,c.bg,c.text));
-          if(r.note)parts.push(`<span style="font-size:10px;color:#9ca3af;font-style:italic;margin-left:3px">${e(r.note)}</span>`);
-          inner+=`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px;padding:6px 0;border-bottom:1px solid #f9fafb">
-            <span style="font-size:11px;color:#d1d5db;min-width:18px;font-family:monospace">${i+1}.</span>${parts.join('')}</div>`;
-        });
-      }
-      if(!inner)return;
-      zonesLogicH+=`<div style="border-radius:9px;border:1px solid ${c.border}44;overflow:hidden;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:${c.bg}">
-          <div style="width:9px;height:9px;border-radius:50%;background:${c.dot};flex-shrink:0"></div>
-          <span style="font-weight:700;font-size:12px;color:${c.text}">${e(z.name)}</span>
-          <span style="font-size:11px;color:#6b7280">— ${e(z.description)||'brak opisu'}</span>
-        </div>
-        <div style="padding:10px 12px;background:#fff">${inner}</div>
-      </div>`;
-    });
-
-    const btnInSecH=btnImgB64?`<div style="text-align:center;margin:0 0 16px">
-      <img src="${btnImgB64}" style="max-height:180px;object-fit:contain;border-radius:8px;border:1px solid #e5e7eb">
-    </div>`:'';
-
-    sectionsDetailH+=`
-      <div style="margin-bottom:24px">
-        <div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:12px">
-          <span style="background:#111827;color:#fff;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700">${e(sec.name)}</span>
-        </div>
-        ${imgH}
-        ${btnInSecH}
-        ${zonesLogicH?`<div style="margin-top:12px">${zonesLogicH}</div>`:''}
-      </div>`;
-  });
-
-  const btnImgH='';
-
-  const noteH=note?`<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:10px;padding:12px 16px;font-size:12px;color:#78350f;line-height:1.6;margin-top:8px">
-    <strong style="display:block;margin-bottom:3px">ℹ Uwaga</strong>${e(note)}</div>`:'';
-
-  return {title, subtitle, tagsH, sectionsDetailH, btnImgH, noteH};
-}
-
-function exportHTML(){
-  const {title,subtitle,tagsH,sectionsDetailH,btnImgH,noteH}=buildHTMLContent();
-  const html=`<!DOCTYPE html>
-<html lang="pl"><head><meta charset="UTF-8">
-<title>${e(title)}</title>
-<meta name="description" content="Kreator instrukcji sterowania oświetleniem — Vertex, Node-RED, BMS">
-<meta name="author" content="lech604">
-<meta property="og:title" content="Kreator Instrukcji Oświetlenia">
-<meta property="og:description" content="Twórz profesjonalne instrukcje sterowania oświetleniem i eksportuj do PDF">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'DM Sans',sans-serif;background:#f3f4f6;color:#111827}.page{max-width:800px;margin:0 auto;padding:32px 24px}@media print{body{background:#fff}.page{padding:0}@page{margin:14mm;size:A4}}</style>
-</head><body><div class="page">
-<div style="background:#111827;color:#fff;border-radius:12px;padding:22px 26px;margin-bottom:22px">
-  <div style="font-size:20px;font-weight:700">${e(title)}</div>
-  ${subtitle?`<div style="font-size:12px;color:#9ca3af;margin-top:4px">${e(subtitle)}</div>`:''}
-  <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">${tagsH}</div>
-</div>
-${sectionsDetailH}
-${btnImgH}
-${noteH}
-</div></body></html>`;
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='instrukcja.html';a.click();
-  closeExport();
-}
-
-// ── EXPORT PDF ─────────────────────────────────────────────────────────────
-async function exportPDF(){
-  const btn=document.getElementById('btn-exp-pdf');
-  const statusEl=document.getElementById('exp-status');
-
-  function setStatus(type,msg){
-    statusEl.className='status-bar status-'+type;
-    statusEl.classList.remove('hidden');
-    statusEl.innerHTML=msg;
+  // Jeśli brak kluczy przy nowym panelu, dodaj 4 domyślne
+  if (!data?.keys?.length) {
+    for (let i = 1; i <= 4; i++) addKey(panel.id, { label: 'K' + i });
+  } else {
+    data.keys.forEach(k => addKey(panel.id, k));
   }
 
-  btn.disabled=true;
-  setStatus('info','<span class="spin">⟳</span> Generuję PDF…');
+  saveState();
+  renderPreview();
+}
+
+function createPanelEl(panel) {
+  const el = document.createElement('div');
+  el.className = 'panel-block';
+  el.id = 'panel-' + panel.id;
+
+  el.innerHTML = `
+    <div class="panel-header">
+      <div class="panel-header-left">
+        <div class="panel-num">${panel.id}</div>
+        <input type="text" class="panel-name-input" value="${esc(panel.name)}" placeholder="Nazwa panelu / lokalizacja">
+      </div>
+      <button class="btn-danger" onclick="removePanel(${panel.id})">✕ Usuń panel</button>
+    </div>
+    <div class="panel-body">
+      <table class="keys-table">
+        <thead>
+          <tr>
+            <th style="width:60px">Klawisz</th>
+            <th>Co steruje / nazwa strefy</th>
+            <th style="width:160px">Typ akcji</th>
+            <th style="width:140px">Tryb naciśnięcia</th>
+            <th style="width:36px"></th>
+          </tr>
+        </thead>
+        <tbody id="keys-${panel.id}"></tbody>
+      </table>
+      <div class="keys-table-footer">
+        <button class="btn-add" onclick="addKey(${panel.id})">+ Dodaj klawisz</button>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('.panel-name-input').addEventListener('input', (e) => {
+    const p = state.panels.find(p => p.id === panel.id);
+    if (p) p.name = e.target.value;
+    saveState();
+    renderPreview();
+  });
+
+  return el;
+}
+
+function removePanel(id) {
+  if (!confirm('Usunąć ten panel wraz ze wszystkimi klawiszami?')) return;
+  state.panels = state.panels.filter(p => p.id !== id);
+  const el = document.getElementById('panel-' + id);
+  if (el) el.remove();
+  saveState();
+  renderPreview();
+}
+
+/* ==========================================
+   KLAWISZE
+========================================== */
+function addKey(panelId, data) {
+  keyCounter++;
+  const id = data?.id || keyCounter;
+  const key = {
+    id,
+    label: data?.label || '',
+    name: data?.name || '',
+    action: data?.action || '',
+    mode: data?.mode || 'short',
+  };
+
+  const panel = state.panels.find(p => p.id === panelId);
+  if (panel && !panel.keys.find(k => k.id === id)) panel.keys.push(key);
+
+  const tbody = document.getElementById('keys-' + panelId);
+  if (!tbody) return;
+
+  const row = document.createElement('tr');
+  row.id = 'key-' + panelId + '-' + id;
+  row.innerHTML = `
+    <td>
+      <input type="text" class="key-label-input" value="${esc(key.label)}" placeholder="K1" maxlength="6">
+    </td>
+    <td>
+      <input type="text" class="key-name-input" value="${esc(key.name)}" placeholder="np. Oświetlenie biurka, Taśma LED...">
+    </td>
+    <td>
+      <select class="key-action-select">
+        ${ACTION_TYPES.map(a => `<option value="${a.value}" ${key.action===a.value?'selected':''}>${a.label}</option>`).join('')}
+      </select>
+    </td>
+    <td>
+      <select class="key-mode-select">
+        ${PRESS_MODES.map(m => `<option value="${m.value}" ${key.mode===m.value?'selected':''}>${m.label}</option>`).join('')}
+      </select>
+    </td>
+    <td>
+      <button class="btn-icon" onclick="removeKey(${panelId},${id})" title="Usuń klawisz">✕</button>
+    </td>
+  `;
+
+  // Zdarzenia
+  const [labelIn, nameIn, actionSel, modeSel] = [
+    row.querySelector('.key-label-input'),
+    row.querySelector('.key-name-input'),
+    row.querySelector('.key-action-select'),
+    row.querySelector('.key-mode-select'),
+  ];
+
+  const update = () => {
+    key.label = labelIn.value;
+    key.name = nameIn.value;
+    key.action = actionSel.value;
+    key.mode = modeSel.value;
+    saveState();
+    renderPreview();
+  };
+
+  labelIn.addEventListener('input', update);
+  nameIn.addEventListener('input', update);
+  actionSel.addEventListener('change', update);
+  modeSel.addEventListener('change', update);
+
+  tbody.appendChild(row);
+}
+
+function removeKey(panelId, keyId) {
+  const panel = state.panels.find(p => p.id === panelId);
+  if (panel) panel.keys = panel.keys.filter(k => k.id !== keyId);
+  const row = document.getElementById('key-' + panelId + '-' + keyId);
+  if (row) row.remove();
+  saveState();
+  renderPreview();
+}
+
+/* ==========================================
+   SENSORY
+========================================== */
+function addSensor(data) {
+  sensorCounter++;
+  const id = data?.id || sensorCounter;
+  const sensor = {
+    id,
+    type: data?.type || 'motion',
+    name: data?.name || '',
+    desc: data?.desc || '',
+  };
+  state.sensors.push(sensor);
+
+  const el = document.createElement('div');
+  el.className = 'sensor-block';
+  el.id = 'sensor-' + id;
+  el.innerHTML = `
+    <div class="field" style="flex:0 0 180px; margin:0">
+      <select class="sensor-type-sel">
+        ${SENSOR_TYPES.map(s => `<option value="${s.value}" ${sensor.type===s.value?'selected':''}>${s.label}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field" style="flex:1; margin:0">
+      <input type="text" class="sensor-name-in" value="${esc(sensor.name)}" placeholder="Opis działania, np. Brak ruchu 20 min → wyłączenie">
+    </div>
+    <button class="btn-icon" onclick="removeSensor(${id})" title="Usuń">✕</button>
+  `;
+
+  el.querySelector('.sensor-type-sel').addEventListener('change', (e) => {
+    sensor.type = e.target.value;
+    saveState(); renderPreview();
+  });
+  el.querySelector('.sensor-name-in').addEventListener('input', (e) => {
+    sensor.name = e.target.value;
+    saveState(); renderPreview();
+  });
+
+  document.getElementById('sensorsContainer').appendChild(el);
+  saveState();
+  renderPreview();
+}
+
+function removeSensor(id) {
+  state.sensors = state.sensors.filter(s => s.id !== id);
+  const el = document.getElementById('sensor-' + id);
+  if (el) el.remove();
+  saveState(); renderPreview();
+}
+
+/* ==========================================
+   UWAGI
+========================================== */
+function addNote(data) {
+  noteCounter++;
+  const id = data?.id || noteCounter;
+  const note = { id, text: data?.text || '' };
+  state.notes.push(note);
+
+  const el = document.createElement('div');
+  el.className = 'note-block';
+  el.id = 'note-' + id;
+  el.innerHTML = `
+    <textarea placeholder="np. Tryb NOPRESENS – brak ruchu przez 20 min powoduje wyłączenie opraw i przywrócenie czujnika.">${esc(note.text)}</textarea>
+    <button class="btn-icon" onclick="removeNote(${id})" title="Usuń">✕</button>
+  `;
+  el.querySelector('textarea').addEventListener('input', (e) => {
+    note.text = e.target.value;
+    saveState(); renderPreview();
+  });
+
+  document.getElementById('notesContainer').appendChild(el);
+  saveState(); renderPreview();
+}
+
+function removeNote(id) {
+  state.notes = state.notes.filter(n => n.id !== id);
+  const el = document.getElementById('note-' + id);
+  if (el) el.remove();
+  saveState(); renderPreview();
+}
+
+/* ==========================================
+   PODGLĄD NA ŻYWO
+========================================== */
+function renderPreview() {
+  const title = val('docTitle') || 'Instrukcja sterowania oświetleniem';
+  const location = val('docLocation');
+  const panel = val('docPanel');
+  const globalNote = val('docNote');
+
+  let html = '';
+
+  // Nagłówek
+  html += `<div class="preview-header">
+    <div class="preview-title">${esc(title)}</div>
+    <div class="preview-meta">
+      ${location ? `<span>📍 ${esc(location)}</span>` : ''}
+      ${panel ? `<span>🎛 ${esc(panel)}</span>` : ''}
+      <span>📅 ${new Date().toLocaleDateString('pl-PL')}</span>
+    </div>
+  </div>`;
+
+  // Uwaga globalna
+  if (globalNote.trim()) {
+    html += `<div class="preview-global-note">ℹ️ ${esc(globalNote)}</div>`;
+  }
+
+  // Panele z klawiszami
+  if (state.panels.length > 0) {
+    state.panels.forEach(panel => {
+      html += `<div class="preview-section">
+        <div class="preview-section-title">🎛 ${esc(panel.name)}</div>`;
+
+      const filledKeys = panel.keys.filter(k => k.name || k.action);
+
+      if (filledKeys.length === 0) {
+        html += `<p style="color:#9ca3af;font-size:12px;font-style:italic">Brak skonfigurowanych klawiszy</p>`;
+      } else {
+        html += `<table class="preview-keys-table">
+          <thead>
+            <tr>
+              <th>Klawisz</th>
+              <th>Co steruje</th>
+              <th>Akcja</th>
+              <th>Tryb</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+        filledKeys.forEach(k => {
+          const actionInfo = ACTION_TYPES.find(a => a.value === k.action) || { label: k.action, cls: 'action-other' };
+          const modeInfo = PRESS_MODES.find(m => m.value === k.mode) || { label: k.mode };
+          html += `<tr>
+            <td><span class="key-badge">${esc(k.label || '?')}</span></td>
+            <td>${esc(k.name)}</td>
+            <td>${k.action ? `<span class="action-badge ${actionInfo.cls}">${actionInfo.label}</span>` : '<span style="color:#9ca3af">—</span>'}</td>
+            <td style="font-size:11px;color:#6b7280">${modeInfo.label}</td>
+          </tr>`;
+        });
+
+        html += `</tbody></table>`;
+      }
+
+      html += `</div>`;
+    });
+  } else {
+    html += `<div class="preview-empty">Dodaj pierwszy panel używając przycisku "+ Dodaj panel"</div>`;
+  }
+
+  // Sensory
+  if (state.sensors.length > 0) {
+    html += `<div class="preview-section">
+      <div class="preview-section-title">🌡 Sensory / automatyka</div>`;
+    state.sensors.forEach(s => {
+      const st = SENSOR_TYPES.find(t => t.value === s.type) || { label: s.type };
+      html += `<div class="preview-sensor-row">
+        <span class="sensor-icon">${st.label.split(' ')[0]}</span>
+        <div>
+          <strong>${st.label.substring(st.label.indexOf(' ')+1)}</strong>
+          ${s.name ? ': ' + esc(s.name) : ''}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Uwagi
+  if (state.notes.some(n => n.text.trim())) {
+    html += `<div class="preview-section">
+      <div class="preview-section-title">⚠️ Uwagi</div>`;
+    state.notes.filter(n => n.text.trim()).forEach(n => {
+      html += `<div class="preview-note">${esc(n.text)}</div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('preview-content').innerHTML = html;
+}
+
+/* ==========================================
+   EKSPORT PDF
+========================================== */
+async function exportPDF() {
+  const btn = document.getElementById('btnPDF');
+  btn.textContent = '⏳ Generuję PDF...';
+  btn.disabled = true;
 
   try {
-    // Build a hidden render div
-    const {title,subtitle,tagsH,sectionsDetailH,btnImgH,noteH}=buildHTMLContent();
-    const wrap=document.createElement('div');
-    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:794px;background:#fff;font-family:DM Sans,system-ui,sans-serif;color:#111827;padding:32px;';
-    wrap.innerHTML=`
-      <div style="background:#111827;color:#fff;border-radius:12px;padding:22px 26px;margin-bottom:22px">
-        <div style="font-size:20px;font-weight:700">${e(title)}</div>
-        ${subtitle?`<div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:4px">${e(subtitle)}</div>`:''}
-        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">${tagsH.replace(/rgba\(255,255,255,\.12\)/g,'#2d3748')}</div>
-      </div>
-      ${sectionsDetailH}
-      ${btnImgH}
-      ${noteH}`;
-    document.body.appendChild(wrap);
-
-    // Wait for images to load
-    await Promise.all([...wrap.querySelectorAll('img')].map(img=>
-      img.complete ? Promise.resolve() :
-      new Promise(res=>{img.onload=res;img.onerror=res;})
-    ));
-    await new Promise(r=>setTimeout(r,300));
-
-    const canvas=await html2canvas(wrap,{
-      scale:2,useCORS:true,allowTaint:true,
-      width:794,backgroundColor:'#fff',
-      logging:false
+    const { jsPDF } = window.jspdf;
+    const content = document.getElementById('preview-content');
+    const canvas = await html2canvas(content, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      scrollX: 0,
+      scrollY: 0,
+      width: content.scrollWidth,
+      height: content.scrollHeight,
     });
-    document.body.removeChild(wrap);
 
-    const {jsPDF}=window.jspdf;
-    const pdf=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-    const pageW=pdf.internal.pageSize.getWidth();
-    const pageH=pdf.internal.pageSize.getHeight();
-    const imgData=canvas.toDataURL('image/jpeg',0.92);
-    const imgW=pageW;
-    const imgH=(canvas.height*pageW)/canvas.width;
+    const imgData = canvas.toDataURL('image/jpeg', 0.97);
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 10;
+    const imgW = pageW - margin * 2;
+    const imgH = (canvas.height * imgW) / canvas.width;
 
-    let y=0;
-    while(y<imgH){
-      if(y>0)pdf.addPage();
-      pdf.addImage(imgData,'JPEG',0,y>0?-(y):0,imgW,imgH,undefined,'FAST');
-      y+=pageH;
+    let yPos = margin;
+    let heightLeft = imgH;
+    pdf.addImage(imgData, 'JPEG', margin, yPos, imgW, imgH);
+    heightLeft -= (pageH - margin * 2);
+
+    while (heightLeft > 0) {
+      yPos = heightLeft - imgH + margin;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', margin, yPos, imgW, imgH);
+      heightLeft -= (pageH - margin * 2);
     }
 
-    pdf.save('instrukcja.pdf');
-    setStatus('ok','✓ PDF zapisany!');
-    setTimeout(()=>{statusEl.classList.add('hidden');closeExport();},1500);
-  } catch(err){
-    setStatus('err','Błąd: '+err.message);
-    console.error(err);
+    // Numeracja stron
+    const totalPages = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(9);
+      pdf.setTextColor(150);
+      pdf.text(i + ' / ' + totalPages, pageW / 2, pageH - 5, { align: 'center' });
+    }
+
+    const filename = (val('docTitle') || 'instrukcja').replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, '') + '.pdf';
+    pdf.save(filename);
+  } catch(e) {
+    alert('Błąd eksportu PDF: ' + e.message);
+  } finally {
+    btn.textContent = '⬇ Eksportuj PDF';
+    btn.disabled = false;
   }
-  btn.disabled=false;
 }
 
-function openExport(){document.getElementById('export-modal').classList.remove('hidden');}
-function closeExport(){document.getElementById('export-modal').classList.add('hidden');}
+/* ==========================================
+   EKSPORT DOCX
+========================================== */
+function exportDOCX() {
+  const btn = document.getElementById('btnDOCX');
+  btn.textContent = '⏳ Generuję DOCX...';
+  btn.disabled = true;
 
-// ── INIT ───────────────────────────────────────────────────────────────────
-renderSteps();
-renderSections();
+  try {
+    if (typeof htmlDocx === 'undefined') throw new Error('Biblioteka html-docx-js nie załadowała się.');
+
+    const title = val('docTitle') || 'Instrukcja sterowania oświetleniem';
+    const location = val('docLocation');
+    const panelModel = val('docPanel');
+    const globalNote = val('docNote');
+
+    let body = `<h1>${title}</h1>`;
+    if (location) body += `<p><b>Lokalizacja:</b> ${location}</p>`;
+    if (panelModel) body += `<p><b>Model panelu:</b> ${panelModel}</p>`;
+    if (globalNote) body += `<p><b>Uwaga:</b> ${globalNote}</p>`;
+
+    state.panels.forEach(panel => {
+      body += `<h2>${panel.name}</h2>`;
+      const filled = panel.keys.filter(k => k.name || k.action);
+      if (filled.length > 0) {
+        body += `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+          <tr><th>Klawisz</th><th>Co steruje</th><th>Typ akcji</th><th>Tryb naciśnięcia</th></tr>`;
+        filled.forEach(k => {
+          const at = ACTION_TYPES.find(a => a.value === k.action);
+          const mt = PRESS_MODES.find(m => m.value === k.mode);
+          body += `<tr>
+            <td><b>${k.label || '?'}</b></td>
+            <td>${k.name || ''}</td>
+            <td>${at ? at.label : k.action}</td>
+            <td>${mt ? mt.label : k.mode}</td>
+          </tr>`;
+        });
+        body += `</table>`;
+      }
+    });
+
+    if (state.sensors.length > 0) {
+      body += `<h2>Sensory / automatyka</h2><ul>`;
+      state.sensors.forEach(s => {
+        const st = SENSOR_TYPES.find(t => t.value === s.type);
+        body += `<li>${st ? st.label : s.type}${s.name ? ': ' + s.name : ''}</li>`;
+      });
+      body += `</ul>`;
+    }
+
+    const notes = state.notes.filter(n => n.text.trim());
+    if (notes.length > 0) {
+      body += `<h2>Uwagi</h2><ul>`;
+      notes.forEach(n => body += `<li>${n.text}</li>`);
+      body += `</ul>`;
+    }
+
+    const html = `<html><head><meta charset="UTF-8"><style>
+      body{font-family:Calibri,Arial;font-size:11pt;}
+      h1{font-size:16pt;color:#1a56db;}
+      h2{font-size:13pt;color:#1a56db;border-bottom:1px solid #ccc;padding-bottom:4px;}
+      table{border-collapse:collapse;width:100%;margin-bottom:12px;}
+      th{background:#e8f0fe;font-weight:bold;}
+      td,th{border:1px solid #ccc;padding:5px 8px;font-size:10pt;}
+    </style></head><body>${body}</body></html>`;
+
+    const blob = htmlDocx.asBlob(html);
+    const filename = title.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, '') + '.docx';
+    saveAs(blob, filename);
+  } catch(e) {
+    alert('Błąd eksportu DOCX: ' + e.message);
+  } finally {
+    btn.textContent = '📄 Eksportuj DOCX';
+    btn.disabled = false;
+  }
+}
+
+/* ==========================================
+   ZAPIS / ODCZYT STANU (localStorage)
+========================================== */
+function saveState() {
+  try {
+    const data = {
+      title: val('docTitle'),
+      location: val('docLocation'),
+      panel: val('docPanel'),
+      note: val('docNote'),
+      panels: state.panels,
+      sensors: state.sensors,
+      notes: state.notes,
+      counters: { panel: panelCounter, key: keyCounter, sensor: sensorCounter, note: noteCounter },
+    };
+    localStorage.setItem('kreator_v2_state', JSON.stringify(data));
+  } catch(e) { console.warn('saveState:', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('kreator_v2_state');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+
+    if (data.title)    document.getElementById('docTitle').value = data.title;
+    if (data.location) document.getElementById('docLocation').value = data.location;
+    if (data.panel)    document.getElementById('docPanel').value = data.panel;
+    if (data.note)     document.getElementById('docNote').value = data.note;
+
+    if (data.counters) {
+      panelCounter = data.counters.panel || 0;
+      keyCounter = data.counters.key || 0;
+      sensorCounter = data.counters.sensor || 0;
+      noteCounter = data.counters.note || 0;
+    }
+
+    (data.panels || []).forEach(p => {
+      state.panels.push({ id: p.id, name: p.name, keys: [] });
+      const el = createPanelEl({ id: p.id, name: p.name });
+      document.getElementById('panelsContainer').appendChild(el);
+      (p.keys || []).forEach(k => addKey(p.id, k));
+    });
+
+    (data.sensors || []).forEach(s => addSensor(s));
+    (data.notes || []).forEach(n => addNote(n));
+  } catch(e) { console.warn('loadState:', e); }
+}
+
+/* ==========================================
+   WYCZYŚĆ WSZYSTKO
+========================================== */
+function clearAll() {
+  if (!confirm('Wyczyścić całą instrukcję? Tej operacji nie można cofnąć.')) return;
+  localStorage.removeItem('kreator_v2_state');
+  location.reload();
+}
+
+/* ==========================================
+   HELPERS
+========================================== */
+function val(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
