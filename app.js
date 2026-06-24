@@ -6,11 +6,12 @@ Wersja 2.1 – zdjęcia, bez daty
 /* ---------- TYPY AKCJI ---------- */
 const ACTION_TYPES = [
   { value: '',         label: '— wybierz —',        cls: '' },
-  { value: 'onoff',    label: 'Włącz / Wyłącz',      cls: 'action-onoff' },
+  { value: 'onoff',    label: 'Włącz / Wyłącz',        cls: 'action-onoff' },
   { value: 'on',       label: 'Włącz',                cls: 'action-on' },
   { value: 'off',      label: 'Wyłącz',               cls: 'action-off' },
   { value: 'up',       label: 'Rozjaśnia ▲ (UP)',      cls: 'action-up' },
   { value: 'down',     label: 'Ściemnia ▼ (DOWN)',   cls: 'action-down' },
+  { value: 'down',     label: 'UP / DOWN ▲/▼ ',         cls: 'a' },
   { value: 'scene',    label: 'Scena / Preset',        cls: 'action-scene' },
   { value: 'hold_up',  label: 'Przytrzymaj ▲',        cls: 'action-up' },
   { value: 'hold_dn',  label: 'Przytrzymaj ▼',        cls: 'action-down' },
